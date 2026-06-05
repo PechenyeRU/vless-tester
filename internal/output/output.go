@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
+	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
 )
 
@@ -19,8 +21,9 @@ const (
 // DefaultBrand is the tag injected into node names.
 const DefaultBrand = "@WhiteDNS"
 
-// unknownFlag is used when the country could not be determined.
-const unknownFlag = "🌐"
+// unknownFlag is used when the country could not be determined (matches the
+// WhiteDNS list, which tags unknown nodes with a question mark and an "OT" seq).
+const unknownFlag = "❓"
 
 // PublicServer is the public, leak-free view of an approved server. It carries
 // only what users and the README need; no worker, vantage or diagnostic data.
@@ -29,6 +32,9 @@ type PublicServer struct {
 	Country   string
 	SeqName   string
 	SpeedMBps float64
+	// Tags are the public media-unlock tags shown in the node name (e.g.
+	// "GPT⁺-FR", "NF-US"); derived from passed media checks via MediaTags.
+	Tags []string
 }
 
 // Options tunes artifact generation.
@@ -36,7 +42,10 @@ type Options struct {
 	Brand string // defaults to DefaultBrand
 }
 
-// NodeName renders the display name, e.g. "🇫🇷 | @WhiteDNS | FR110 | 12.3 MB/s".
+// NodeName renders the display name in the WhiteDNS format, e.g.
+// "🇫🇷 | @WhiteDNS | FR1|12.3MB/s|GPT⁺-FR|GM-FR". The "{flag} | {brand} | "
+// prefix keeps spaces; the seq, speed and media tags after it are joined by "|"
+// with no spaces.
 func NodeName(brand string, s PublicServer) string {
 	if brand == "" {
 		brand = DefaultBrand
@@ -45,12 +54,71 @@ func NodeName(brand string, s PublicServer) string {
 	if flag == "" {
 		flag = unknownFlag
 	}
-	return strings.Join([]string{
-		flag,
-		brand,
-		s.SeqName,
-		fmt.Sprintf("%.1f MB/s", s.SpeedMBps),
-	}, " | ")
+	fields := append([]string{s.SeqName, formatSpeed(s.SpeedMBps)}, s.Tags...)
+	return flag + " | " + brand + " | " + strings.Join(fields, "|")
+}
+
+// formatSpeed renders throughput like WhiteDNS: KB/s below 1 MB/s, otherwise
+// MB/s with one decimal, with no space before the unit.
+func formatSpeed(mbps float64) string {
+	if mbps < 1 {
+		return fmt.Sprintf("%dKB/s", int(math.Round(mbps*1000)))
+	}
+	return fmt.Sprintf("%.1fMB/s", mbps)
+}
+
+// mediaTagOrder is the stable order media tags appear in the node name (matches
+// WhiteDNS: GPT, GM, CL, SP, then the rest).
+var mediaTagOrder = []string{"openai", "gemini", "claude", "spotify", "netflix", "youtube", "disney", "tiktok"}
+
+// mediaTagAbbrev maps a media platform to its public node-name tag.
+var mediaTagAbbrev = map[string]string{
+	"openai":  "GPT⁺",
+	"gemini":  "GM",
+	"claude":  "CL",
+	"spotify": "SP",
+	"netflix": "NF",
+	"youtube": "YT",
+	"disney":  "DP",
+	"tiktok":  "TT",
+}
+
+// MediaTags renders the passed media-unlock checks as WhiteDNS-style node-name
+// tags ("GPT⁺-FR", "NF-US"), suffixed with the unlock region (the check detail
+// when it is a 2-letter code, else the node country). Failed checks, ip_risk and
+// unknown platforms are skipped; order follows mediaTagOrder.
+func MediaTags(country string, checks []model.CheckOutcome) []string {
+	byName := make(map[string]model.CheckOutcome, len(checks))
+	for _, c := range checks {
+		byName[c.Name] = c
+	}
+	var tags []string
+	for _, name := range mediaTagOrder {
+		c, ok := byName[name]
+		if !ok || !c.Passed {
+			continue
+		}
+		region := regionFromDetail(c.Detail)
+		if region == "" {
+			region = strings.ToUpper(country)
+		}
+		tag := mediaTagAbbrev[name]
+		if region != "" {
+			tag += "-" + region
+		}
+		tags = append(tags, tag)
+	}
+	return tags
+}
+
+// regionFromDetail returns an uppercase 2-letter region when the check detail is
+// exactly a country code, else "".
+func regionFromDetail(detail string) string {
+	d := strings.ToUpper(strings.TrimSpace(detail))
+	if len(d) == 2 && d[0] >= 'A' && d[0] <= 'Z' && d[1] >= 'A' && d[1] <= 'Z' {
+		return d
+	}
+	return ""
 }
 
 // publicRecord is the JSON shape published in working.json. Its fields are

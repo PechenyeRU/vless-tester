@@ -273,11 +273,16 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 				return sum, err
 			}
 		}
+		checks, err := e.Store.ServerChecks(ctx, a.ServerID)
+		if err != nil {
+			return sum, fmt.Errorf("engine: server checks: %w", err)
+		}
 		pubServers = append(pubServers, output.PublicServer{
 			RawURI:    a.RawURI,
 			Country:   country,
 			SeqName:   seqName,
 			SpeedMBps: a.MedianDlMbps,
+			Tags:      output.MediaTags(country, checks),
 		})
 	}
 
@@ -397,7 +402,7 @@ func (e *Engine) ensureGeo(ctx context.Context, serverID int64, fingerprint, hos
 	country = e.country(ctx, host)
 	seqCountry := country
 	if seqCountry == "" {
-		seqCountry = "XX"
+		seqCountry = "OT" // unknown-country bucket (matches WhiteDNS "OT" + ❓ flag)
 	}
 	seqName, err = e.Seq.Assign(ctx, fingerprint, seqCountry)
 	if err != nil {

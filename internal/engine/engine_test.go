@@ -176,7 +176,7 @@ func TestEngineRunOnceEndToEnd(t *testing.T) {
 	if got := strings.Count(string(decoded), "\n"); got != 1 {
 		t.Fatalf("expected 2 links (1 newline), got %d newlines", got)
 	}
-	if !strings.Contains(string(decoded), "@WhiteDNS | FR1 |") {
+	if !strings.Contains(string(decoded), "@WhiteDNS | FR1|") {
 		t.Fatalf("renamed node name missing from subscription")
 	}
 

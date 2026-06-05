@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/output"
 )
 
@@ -17,19 +18,47 @@ func sampleServers() []output.PublicServer {
 }
 
 func TestNodeName(t *testing.T) {
-	s := output.PublicServer{Country: "FR", SeqName: "FR110", SpeedMBps: 12.34}
+	s := output.PublicServer{Country: "FR", SeqName: "FR1", SpeedMBps: 12.34, Tags: []string{"GPT⁺-FR", "GM-FR"}}
 	got := output.NodeName("@WhiteDNS", s)
-	want := "🇫🇷 | @WhiteDNS | FR110 | 12.3 MB/s"
+	want := "🇫🇷 | @WhiteDNS | FR1|12.3MB/s|GPT⁺-FR|GM-FR"
 	if got != want {
 		t.Fatalf("NodeName = %q, want %q", got, want)
 	}
 }
 
+func TestNodeNameSpeedUnit(t *testing.T) {
+	// Below 1 MB/s renders KB/s (integer), matching the WhiteDNS format.
+	slow := output.NodeName("@WhiteDNS", output.PublicServer{Country: "DE", SeqName: "DE1", SpeedMBps: 0.953})
+	if slow != "🇩🇪 | @WhiteDNS | DE1|953KB/s" {
+		t.Fatalf("slow node name = %q", slow)
+	}
+}
+
 func TestNodeNameUnknownCountry(t *testing.T) {
-	s := output.PublicServer{Country: "", SeqName: "XX1", SpeedMBps: 1.0}
+	s := output.PublicServer{Country: "", SeqName: "OT1", SpeedMBps: 1.0}
 	got := output.NodeName("", s)
-	if !strings.Contains(got, "@WhiteDNS") || !strings.HasPrefix(got, "🌐") {
+	if !strings.Contains(got, "@WhiteDNS") || !strings.HasPrefix(got, "❓") {
 		t.Fatalf("unexpected fallback node name: %q", got)
+	}
+}
+
+func TestMediaTags(t *testing.T) {
+	checks := []model.CheckOutcome{
+		{Name: "openai", Passed: true, Detail: "US"},
+		{Name: "gemini", Passed: true, Detail: "available"}, // non-region detail -> node country
+		{Name: "netflix", Passed: false, Detail: "blocked"}, // failed -> skipped
+		{Name: "ip_risk", Passed: false, Detail: "proxy"},   // never a media tag
+		{Name: "spotify", Passed: true, Detail: "DE"},
+	}
+	got := output.MediaTags("FR", checks)
+	want := []string{"GPT⁺-US", "GM-FR", "SP-DE"} // order: openai, gemini, spotify
+	if len(got) != len(want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("tags = %v, want %v", got, want)
+		}
 	}
 }
 
@@ -47,7 +76,7 @@ func TestBuildArtifactsSubscription(t *testing.T) {
 		t.Fatalf("got %d links, want 2", len(lines))
 	}
 	// The first link must be renamed with the node name in its fragment.
-	if !strings.Contains(lines[0], "#🇫🇷 | @WhiteDNS | FR110 | 12.3 MB/s") {
+	if !strings.Contains(lines[0], "#🇫🇷 | @WhiteDNS | FR110|12.3MB/s") {
 		t.Fatalf("first link not renamed: %q", lines[0])
 	}
 	// Connection part must be preserved.
@@ -79,7 +108,7 @@ func TestRenameVMessPreservesConnection(t *testing.T) {
 	if err := json.Unmarshal(jsonBytes, &obj); err != nil {
 		t.Fatalf("vmess payload not json: %v", err)
 	}
-	if obj["ps"] != "🇩🇪 | @WhiteDNS | DE5 | 5.5 MB/s" {
+	if obj["ps"] != "🇩🇪 | @WhiteDNS | DE5|5.5MB/s" {
 		t.Fatalf("ps not renamed: %v", obj["ps"])
 	}
 	if obj["id"] != "the-uuid" || obj["add"] != "m.example.com" {
