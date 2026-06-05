@@ -205,6 +205,39 @@ func TestEngineRunOnceEndToEnd(t *testing.T) {
 	}
 }
 
+type mockNotifier struct{ msgs []string }
+
+func (m *mockNotifier) Notify(_ context.Context, msg string) error {
+	m.msgs = append(m.msgs, msg)
+	return nil
+}
+
+func TestEngineNotifiesOnPublish(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+
+	eng := newEngine(st, srv)
+	mn := &mockNotifier{}
+	eng.Notifier = mn
+
+	servers, _ := ingest.ParseList("vless://uuid@8.8.8.8:443?type=ws#a")
+	sum, err := eng.RunOnce(context.Background(), servers)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if len(mn.msgs) != 1 {
+		t.Fatalf("notifier called %d times, want 1", len(mn.msgs))
+	}
+	if !strings.Contains(mn.msgs[0], "working servers") {
+		t.Fatalf("notify message = %q", mn.msgs[0])
+	}
+	// The summary tallies per country (FR from the fake resolver).
+	if sum.ByCountry["FR"] != 1 {
+		t.Fatalf("by-country = %v, want FR:1", sum.ByCountry)
+	}
+}
+
 func TestEngineStableSeqAcrossRuns(t *testing.T) {
 	st := newTestStore(t)
 	srv := newSpeedServer(t)

@@ -68,6 +68,7 @@ export const api = {
 	settings: () => req('GET', '/settings'),
 	putSettings: (patch) => req('PUT', '/settings', patch),
 	setFunnel: (stages) => req('PUT', '/settings', { 'funnel.stages': stages }),
+	notifyTest: () => req('POST', '/notify-test'),
 	action: (name) => req('POST', '/actions/' + name),
 	workerTokens: () => req('GET', '/worker-tokens'),
 	createWorkerToken: (name, protocols) => req('POST', '/worker-tokens', { name, protocols }),

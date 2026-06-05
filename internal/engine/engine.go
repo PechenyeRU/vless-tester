@@ -12,6 +12,7 @@ import (
 	"github.com/whitedns/vless-tester/internal/ingest"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
+	"github.com/whitedns/vless-tester/internal/notify"
 	"github.com/whitedns/vless-tester/internal/output"
 	"github.com/whitedns/vless-tester/internal/store"
 )
@@ -66,7 +67,9 @@ type Engine struct {
 	Speed     checks.SpeedCheck
 	Resolver  naming.CountryResolver // optional; nil means "unknown country"
 	Seq       naming.Allocator
-	Publisher output.Publisher // optional; nil skips publishing
+	Publisher output.Publisher     // optional; nil skips publishing
+	Notifier  notify.Notifier      // optional; nil skips end-of-cycle notifications
+	Logf      func(string, ...any) // optional logger; nil discards
 	Brand     string
 	WorkerID  string
 	Approval  Approval
@@ -86,6 +89,26 @@ type Summary struct {
 	Tested    int
 	Approved  int
 	Artifacts map[string][]byte
+	ByCountry map[string]int // approved-server count per country (for notifications)
+}
+
+// logf logs via the optional engine logger.
+func (e *Engine) logf(format string, args ...any) {
+	if e.Logf != nil {
+		e.Logf(format, args...)
+	}
+}
+
+// notifyCycle sends the best-effort end-of-cycle notification. Failures are
+// logged, never propagated, so a flaky notifier never blocks a publish.
+func (e *Engine) notifyCycle(ctx context.Context, sum Summary) {
+	if e.Notifier == nil {
+		return
+	}
+	msg := notify.CycleMessage(e.Brand, sum.Approved, sum.ByCountry)
+	if err := e.Notifier.Notify(ctx, msg); err != nil {
+		e.logf("engine: notify: %v", err)
+	}
 }
 
 // RunOnce processes a batch of already-parsed servers end to end, in-process.
@@ -136,6 +159,8 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 	}
 	sum.Approved = pub.Approved
 	sum.Artifacts = pub.Artifacts
+	sum.ByCountry = pub.ByCountry
+	e.notifyCycle(ctx, pub)
 	return sum, nil
 }
 
@@ -240,6 +265,7 @@ func (e *Engine) Reconcile(ctx context.Context) (ReconcileResult, error) {
 	}
 	res.Published = true
 	res.Approved = pub.Approved
+	e.notifyCycle(ctx, pub)
 	return res, nil
 }
 
@@ -265,6 +291,7 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	sum.Approved = len(approved)
 
 	pubServers := make([]output.PublicServer, 0, len(approved))
+	byCountry := make(map[string]int)
 	for _, a := range approved {
 		country, seqName := a.Country, a.SeqName
 		if seqName == "" {
@@ -284,7 +311,9 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 			SpeedMBps: a.MedianDlMbps,
 			Tags:      output.MediaTags(country, checks),
 		})
+		byCountry[country]++
 	}
+	sum.ByCountry = byCountry
 
 	files, err := output.BuildArtifacts(pubServers, output.Options{Brand: e.Brand})
 	if err != nil {

@@ -45,7 +45,9 @@
 		'media.platforms': 'Edited above in "Media unlock" (tested platforms).',
 		'media.require': 'Edited above in "Media unlock" (required to unlock).',
 		'iprisk.enabled': 'Edited above in "Media unlock" (IP-risk scoring).',
-		'funnel.stages': 'Edited above in "Test funnel".'
+		'funnel.stages': 'Edited above in "Test funnel".',
+		'notify.enabled': 'Edited above in "Notifications".',
+		'notify.urls': 'Edited above in "Notifications" (shoutrrr URLs).'
 	};
 
 	let sources = $state([]);
@@ -72,6 +74,10 @@
 	let ipRiskEnabled = $state(false);
 	// Funnel pipeline (ordered list of {check, gate}).
 	let funnelStages = $state([]);
+	// Notifications.
+	let notifyEnabled = $state(false);
+	let notifyUrls = $state(''); // one shoutrrr URL per line
+	let notifyBusy = $state(false);
 
 	async function load() {
 		error = '';
@@ -94,6 +100,8 @@
 			ipRiskEnabled = !!(sett && sett['iprisk.enabled']);
 			const fs = sett && sett['funnel.stages'];
 			funnelStages = Array.isArray(fs) && fs.length ? fs.map((s) => ({ ...s })) : FUNNEL_DEFAULT.map((s) => ({ ...s }));
+			notifyEnabled = !!(sett && sett['notify.enabled']);
+			notifyUrls = ((sett && sett['notify.urls']) || []).join('\n');
 		} catch (e) {
 			error = e.message;
 		}
@@ -136,6 +144,33 @@
 			flash('Funnel saved');
 		} catch (e) {
 			error = e.message;
+		}
+	}
+
+	async function saveNotify() {
+		error = '';
+		const urls = notifyUrls
+			.split('\n')
+			.map((u) => u.trim())
+			.filter(Boolean);
+		try {
+			await api.putSettings({ 'notify.enabled': notifyEnabled, 'notify.urls': urls });
+			flash('Notifications saved (restart to apply to the cycle notifier)');
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function testNotify() {
+		error = '';
+		notifyBusy = true;
+		try {
+			await api.notifyTest();
+			flash('Test notification sent');
+		} catch (e) {
+			error = e.message;
+		} finally {
+			notifyBusy = false;
 		}
 	}
 
@@ -548,6 +583,38 @@
 
 		<div class="mt-3">
 			<button class="btn btn-primary btn-sm" onclick={saveFunnel}>Save funnel</button>
+		</div>
+	</div>
+</div>
+
+<div class="card bg-base-100 shadow mb-6">
+	<div class="card-body">
+		<h2 class="card-title text-lg">
+			Notifications
+			<Help
+				tip="Send a per-country summary after each published cycle via shoutrrr. One service URL per line: telegram://token@telegram?chats=@channel, discord://token@id, slack://…, or generic://host/path for a webhook. The cycle notifier reads these at startup — use 'Send test' to validate them live."
+			/>
+		</h2>
+		<label class="label cursor-pointer justify-start gap-2 w-fit">
+			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={notifyEnabled} />
+			<span class="label-text">Notify on end of cycle</span>
+		</label>
+		<label class="form-control mt-2">
+			<span class="label-text mb-1">
+				Service URLs <span class="text-base-content/50">(one shoutrrr URL per line)</span>
+			</span>
+			<textarea
+				class="textarea textarea-bordered mono text-xs h-28"
+				bind:value={notifyUrls}
+				placeholder="telegram://token@telegram?chats=@mychannel&#10;discord://token@id&#10;generic://example.com/webhook"
+			></textarea>
+		</label>
+		<div class="mt-3 flex gap-2">
+			<button class="btn btn-primary btn-sm" onclick={saveNotify}>Save notifications</button>
+			<button class="btn btn-sm" onclick={testNotify} disabled={notifyBusy}>
+				{#if notifyBusy}<span class="loading loading-spinner loading-xs"></span>{/if}
+				Send test
+			</button>
 		</div>
 	</div>
 </div>

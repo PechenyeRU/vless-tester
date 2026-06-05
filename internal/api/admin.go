@@ -20,6 +20,7 @@ import (
 
 	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
+	"github.com/whitedns/vless-tester/internal/notify"
 	"github.com/whitedns/vless-tester/internal/store"
 )
 
@@ -42,6 +43,7 @@ type AdminStore interface {
 	DeleteWorkerToken(ctx context.Context, id int64) (bool, error)
 	SetWorkerTokenProtocols(ctx context.Context, id int64, protocols []string) (bool, error)
 	CycleProgress(ctx context.Context) (store.CycleProgress, error)
+	NotifySettings(ctx context.Context) (enabled bool, urls []string, err error)
 }
 
 // LogSource exposes recent log lines for the live-log endpoint. *logbuf.Hub
@@ -158,6 +160,7 @@ func (s *AdminServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
 	mux.HandleFunc("GET /api/v1/progress", s.handleProgress)
 	mux.HandleFunc("GET /api/v1/logs", s.handleLogs)
+	mux.HandleFunc("POST /api/v1/notify-test", s.handleNotifyTest)
 	mux.HandleFunc("GET /api/v1/sources", s.handleListSources)
 	mux.HandleFunc("PUT /api/v1/sources", s.handlePutSource)
 	mux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
@@ -496,6 +499,34 @@ func (s *AdminServer) handleProgress(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+// --- POST /notify-test ---
+
+// handleNotifyTest sends a test notification to the currently configured
+// shoutrrr URLs, so the operator can validate them without restarting the
+// coordinator (which reads them at startup for the cycle notifier).
+func (s *AdminServer) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
+	_, urls, err := s.Store.NotifySettings(r.Context())
+	if err != nil {
+		s.logf("api: notify-test settings: %v", err)
+		writeErr(w, http.StatusInternalServerError, "read settings failed")
+		return
+	}
+	n, err := notify.NewShoutrrr(urls)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if n == nil {
+		writeErr(w, http.StatusBadRequest, "no notification URLs configured")
+		return
+	}
+	if err := n.Notify(r.Context(), "🔔 vless-tester test notification"); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // --- GET /logs ---

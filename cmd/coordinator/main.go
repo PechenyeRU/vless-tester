@@ -20,6 +20,7 @@ import (
 	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
+	"github.com/whitedns/vless-tester/internal/notify"
 	"github.com/whitedns/vless-tester/internal/output"
 	"github.com/whitedns/vless-tester/internal/scheduler"
 	"github.com/whitedns/vless-tester/internal/store"
@@ -219,6 +220,7 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler, logs *logbuf.Hub) ht
 	mux.Handle("/api/v1/stats", admin)
 	mux.Handle("/api/v1/progress", admin)
 	mux.Handle("/api/v1/logs", admin)
+	mux.Handle("/api/v1/notify-test", admin)
 	mux.Handle("/api/v1/sources", admin)
 	mux.Handle("/api/v1/settings", admin)
 	mux.Handle("/api/v1/actions/", admin)
@@ -256,12 +258,27 @@ func buildEngine(ctx context.Context, st *store.Store) *engine.Engine {
 		publisher = &output.GitPublisher{RepoURL: repo, Branch: "main"}
 	}
 
+	// End-of-cycle notifier, built from settings at startup (edit + restart to
+	// change; the admin "Send test" button validates URLs live without restart).
+	var notifier notify.Notifier
+	if enabled, urls, err := st.NotifySettings(ctx); err != nil {
+		log.Printf("notify: read settings: %v", err)
+	} else if enabled {
+		if n, err := notify.NewShoutrrr(urls); err != nil {
+			log.Printf("notify: %v", err)
+		} else if n != nil {
+			notifier = n
+		}
+	}
+
 	required := intSetting(ctx, st, "approval.required_workers", 1)
 	return &engine.Engine{
 		Store:     st,
 		Resolver:  resolver,
 		Seq:       naming.Allocator{Backend: st.NewSeqBackend()},
 		Publisher: publisher,
+		Notifier:  notifier,
+		Logf:      log.Printf,
 		Brand:     "@WhiteDNS",
 		Approval: engine.Approval{
 			MaxLatencyMs:    intSetting(ctx, st, "approval.max_latency_ms", 800),

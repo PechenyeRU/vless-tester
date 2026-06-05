@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,8 @@ type fakeAdminStore struct {
 	workers          []model.Worker
 	stats            store.Stats
 	progress         store.CycleProgress
+	notifyEnabled    bool
+	notifyURLs       []string
 	sources          []model.Source
 	settings         map[string]json.RawMessage
 	upserted         []model.Source
@@ -72,6 +75,9 @@ func (f *fakeAdminStore) ListWorkers(_ context.Context) ([]model.Worker, error) 
 func (f *fakeAdminStore) Stats(_ context.Context) (store.Stats, error) { return f.stats, nil }
 func (f *fakeAdminStore) CycleProgress(_ context.Context) (store.CycleProgress, error) {
 	return f.progress, nil
+}
+func (f *fakeAdminStore) NotifySettings(_ context.Context) (bool, []string, error) {
+	return f.notifyEnabled, f.notifyURLs, nil
 }
 func (f *fakeAdminStore) ListAllSources(_ context.Context) ([]model.Source, error) {
 	return f.sources, nil
@@ -252,6 +258,36 @@ func TestAdminLogs(t *testing.T) {
 	mustJSON(t, rec, &v)
 	if len(v.Lines) != 2 || v.NextSeq != 2 || v.Lines[0].Msg != "hello world" {
 		t.Fatalf("logs = %+v (next=%d)", v.Lines, v.NextSeq)
+	}
+}
+
+func TestAdminNotifyTest(t *testing.T) {
+	got := make(chan struct{}, 1)
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		got <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hook.Close()
+
+	f := newAdminFake()
+	f.notifyURLs = []string{"generic+" + hook.URL}
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPost, "/api/v1/notify-test", "", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body)
+	}
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("notify webhook was not called")
+	}
+}
+
+func TestAdminNotifyTestNoURLs(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake()}
+	rec := do(t, s, http.MethodPost, "/api/v1/notify-test", "", ``)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
 	}
 }
 
