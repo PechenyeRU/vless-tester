@@ -1,6 +1,8 @@
 package convert
 
 import (
+	_ "embed"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -8,36 +10,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// clashGroup is the manual proxy-group name every node is placed under.
+// clashGroup is the manual proxy-group name used by the surge renderer.
 const clashGroup = "WhiteDNS"
 
-// renderClash emits a clash-meta (mihomo) config with a flat proxies list, a
-// single select group and a catch-all rule. Map keys serialize sorted, so the
-// output is deterministic for a given input.
+// clashTemplate is the ACL4SSR full template (proxy-groups, rule-providers and
+// rules) that WhiteDNS ships, with no proxies. Its country/Netflix groups use
+// `include-all: true` + a name `filter:` regex, so they self-populate from the
+// injected proxies (whose names carry the country code, flag and media tags).
+//
+//go:embed templates/clash_acl4ssr.yaml
+var clashTemplate []byte
+
+// renderClash emits a clash-meta (mihomo) config: the embedded ACL4SSR template
+// with our proxies injected. Map keys serialize sorted, so output is
+// deterministic for a given input.
 func renderClash(nodes []Node) ([]byte, error) {
 	proxies := make([]map[string]any, 0, len(nodes))
-	names := make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		p := clashProxy(n)
-		if p == nil {
-			continue // protocol not representable in clash; skip it
+		if p := clashProxy(n); p != nil {
+			proxies = append(proxies, p)
 		}
-		proxies = append(proxies, p)
-		names = append(names, n.Name)
 	}
-	groupProxies := names
-	if len(groupProxies) == 0 {
-		groupProxies = []string{"DIRECT"}
+	var doc map[string]any
+	if err := yaml.Unmarshal(clashTemplate, &doc); err != nil {
+		return nil, fmt.Errorf("convert: parse clash template: %w", err)
 	}
-	doc := map[string]any{
-		"proxies": proxies,
-		"proxy-groups": []map[string]any{{
-			"name":    clashGroup,
-			"type":    "select",
-			"proxies": groupProxies,
-		}},
-		"rules": []string{"MATCH," + clashGroup},
-	}
+	doc["proxies"] = proxies
 	return yaml.Marshal(doc)
 }
 

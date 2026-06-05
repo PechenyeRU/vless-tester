@@ -85,9 +85,10 @@ func TestClashParses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Proxies     []map[string]any `yaml:"proxies"`
-		ProxyGroups []map[string]any `yaml:"proxy-groups"`
-		Rules       []string         `yaml:"rules"`
+		Proxies      []map[string]any `yaml:"proxies"`
+		ProxyGroups  []map[string]any `yaml:"proxy-groups"`
+		RuleProvider map[string]any   `yaml:"rule-providers"`
+		Rules        []string         `yaml:"rules"`
 	}
 	if err := yaml.Unmarshal(out, &doc); err != nil {
 		t.Fatalf("clash yaml does not parse: %v", err)
@@ -96,8 +97,20 @@ func TestClashParses(t *testing.T) {
 	if len(doc.Proxies) != len(sampleURIs) {
 		t.Errorf("proxies = %d, want %d", len(doc.Proxies), len(sampleURIs))
 	}
-	if len(doc.ProxyGroups) != 1 || len(doc.Rules) == 0 {
-		t.Errorf("missing proxy-group or rules")
+	// The ACL4SSR template contributes many groups, rule-providers and rules.
+	if len(doc.ProxyGroups) < 5 || len(doc.RuleProvider) == 0 || len(doc.Rules) == 0 {
+		t.Errorf("template not applied: groups=%d providers=%d rules=%d",
+			len(doc.ProxyGroups), len(doc.RuleProvider), len(doc.Rules))
+	}
+	// A known ACL4SSR group must be present.
+	var hasSelect bool
+	for _, g := range doc.ProxyGroups {
+		if name, _ := g["name"].(string); strings.Contains(name, "Proxy Select") {
+			hasSelect = true
+		}
+	}
+	if !hasSelect {
+		t.Errorf("expected a 'Proxy Select' group from the ACL4SSR template")
 	}
 }
 

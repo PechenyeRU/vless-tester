@@ -95,18 +95,513 @@ proxies:
       type: socks5
       username: user
 proxy-groups:
-    - name: WhiteDNS
+    - name: "\U0001F680 Proxy Select"
       proxies:
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | VLESS"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | VLESS-reality"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | VMess"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | Trojan"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | TUIC"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | Hysteria2"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | Shadowsocks"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | AnyTLS"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | HysteriaV1"
-        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | SOCKS"
+        - ♻️ Auto Select
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+        - DIRECT
       type: select
+    - include-all: true
+      name: "\U0001F680 Manual Select"
+      type: select
+    - include-all: true
+      interval: 300
+      name: ♻️ Auto Select
+      tolerance: 50
+      type: url-test
+    - name: "\U0001F4F2 Telegram"
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+        - DIRECT
+      type: select
+    - name: "\U0001F4AC AI Platforms"
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+        - DIRECT
+      type: select
+    - name: "\U0001F4F9 YouTube"
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+        - DIRECT
+      type: select
+    - name: "\U0001F3A5 Netflix"
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+        - "\U0001F3A5 Netflix Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+        - DIRECT
+      type: select
+    - name: "\U0001F4FA Bahamut"
+      proxies:
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F680 Proxy Select"
+        - "\U0001F680 Manual Select"
+        - DIRECT
+      type: select
+    - name: "\U0001F4FA Bilibili"
+      proxies:
+        - "\U0001F3AF Global Direct"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+      type: select
+    - name: "\U0001F30D International Media"
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+        - DIRECT
+      type: select
+    - name: "\U0001F30F China Media"
+      proxies:
+        - DIRECT
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - name: "\U0001F4E2 Google FCM"
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - name: Ⓜ️ Microsoft Bing
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - name: Ⓜ️ OneDrive
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - name: Ⓜ️ Microsoft Services
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - DIRECT
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - name: "\U0001F34E Apple Services"
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - name: "\U0001F3AE Gaming"
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - filter: (?i)NetEase|Music
+      include-all: true
+      name: "\U0001F3B6 NetEase Music"
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+      type: select
+    - name: "\U0001F3AF Global Direct"
+      proxies:
+        - DIRECT
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+      type: select
+    - name: "\U0001F6D1 Ad Blocking"
+      proxies:
+        - REJECT
+        - DIRECT
+      type: select
+    - name: "\U0001F343 App Cleanup"
+      proxies:
+        - REJECT
+        - DIRECT
+      type: select
+    - name: "\U0001F41F Final Fallback"
+      proxies:
+        - "\U0001F680 Proxy Select"
+        - ♻️ Auto Select
+        - DIRECT
+        - "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+        - "\U0001F1F9\U0001F1FC Taiwan Nodes"
+        - "\U0001F1F8\U0001F1EC Singapore Nodes"
+        - "\U0001F1EF\U0001F1F5 Japan Nodes"
+        - "\U0001F1FA\U0001F1F8 United States Nodes"
+        - "\U0001F1F0\U0001F1F7 Korea Nodes"
+        - "\U0001F680 Manual Select"
+      type: select
+    - filter: (?i)HK|Hong Kong|HongKong|hongkong
+      include-all: true
+      interval: 300
+      name: "\U0001F1ED\U0001F1F0 Hong Kong Nodes"
+      tolerance: 50
+      type: url-test
+    - filter: (?i)JP|Japan|Tokyo|Osaka|Saitama
+      include-all: true
+      interval: 300
+      name: "\U0001F1EF\U0001F1F5 Japan Nodes"
+      tolerance: 50
+      type: url-test
+    - filter: (?i)US|USA|United States|America|Portland|Dallas|Oregon|Phoenix|Fremont|Silicon Valley|Las Vegas|Los Angeles|San Jose|Santa Clara|Seattle|Chicago|New York
+      include-all: true
+      interval: 300
+      name: "\U0001F1FA\U0001F1F8 United States Nodes"
+      tolerance: 50
+      type: url-test
+    - filter: (?i)TW|Taiwan|Taipei|New Taipei|Changhua
+      include-all: true
+      interval: 300
+      name: "\U0001F1F9\U0001F1FC Taiwan Nodes"
+      tolerance: 50
+      type: url-test
+    - filter: (?i)SG|Singapore
+      include-all: true
+      interval: 300
+      name: "\U0001F1F8\U0001F1EC Singapore Nodes"
+      tolerance: 50
+      type: url-test
+    - filter: (?i)KR|Korea|KOR|Seoul
+      include-all: true
+      interval: 300
+      name: "\U0001F1F0\U0001F1F7 Korea Nodes"
+      tolerance: 50
+      type: url-test
+    - filter: (?i)NF|Netflix|NETFLIX|Media|Unlock
+      include-all: true
+      name: "\U0001F3A5 Netflix Nodes"
+      type: select
+rule-providers:
+    AI:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/AI.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/AI.list
+    Apple:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Apple.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Apple.list
+    Bahamut:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Bahamut.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Bahamut.list
+    BanAD:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/BanAD.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/BanAD.list
+    BanProgramAD:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/BanProgramAD.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/BanProgramAD.list
+    Bilibili:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Bilibili.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Bilibili.list
+    BilibiliHMT:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/BilibiliHMT.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/BilibiliHMT.list
+    Bing:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Bing.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Bing.list
+    ChinaCompanyIp:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/ChinaCompanyIp.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/ChinaCompanyIp.list
+    ChinaDomain:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/ChinaDomain.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/ChinaDomain.list
+    ChinaMedia:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/ChinaMedia.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/ChinaMedia.list
+    Download:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Download.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Download.list
+    Epic:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Epic.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Epic.list
+    GoogleCN:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/GoogleCN.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/GoogleCN.list
+    GoogleFCM:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/GoogleFCM.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/GoogleFCM.list
+    LocalAreaNetwork:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/LocalAreaNetwork.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/LocalAreaNetwork.list
+    Microsoft:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Microsoft.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Microsoft.list
+    NetEaseMusic:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/NetEaseMusic.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/NetEaseMusic.list
+    Netflix:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Netflix.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Netflix.list
+    Nintendo:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Nintendo.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Nintendo.list
+    OneDrive:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/OneDrive.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/OneDrive.list
+    OpenAi:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/OpenAi.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/OpenAi.list
+    Origin:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Origin.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Origin.list
+    ProxyGFWlist:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/ProxyGFWlist.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/ProxyGFWlist.list
+    ProxyMedia:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/ProxyMedia.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/ProxyMedia.list
+    Sony:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Sony.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Sony.list
+    Steam:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Steam.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/Steam.list
+    SteamCN:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/SteamCN.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/SteamCN.list
+    Telegram:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/Telegram.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Telegram.list
+    UnBan:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/UnBan.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/UnBan.list
+    YouTube:
+        behavior: classical
+        format: text
+        interval: 86400
+        path: ./ruleset/YouTube.list
+        type: http
+        url: https://testingcf.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash/Ruleset/YouTube.list
 rules:
-    - MATCH,WhiteDNS
+    - "PROCESS-NAME,subs-check.exe,\U0001F3AF Global Direct"
+    - "PROCESS-NAME,subs-check,\U0001F3AF Global Direct"
+    - "RULE-SET,LocalAreaNetwork,\U0001F3AF Global Direct"
+    - "RULE-SET,UnBan,\U0001F3AF Global Direct"
+    - "RULE-SET,BanAD,\U0001F6D1 Ad Blocking"
+    - "RULE-SET,BanProgramAD,\U0001F343 App Cleanup"
+    - "RULE-SET,GoogleFCM,\U0001F4E2 Google FCM"
+    - "RULE-SET,GoogleCN,\U0001F3AF Global Direct"
+    - "RULE-SET,SteamCN,\U0001F3AF Global Direct"
+    - RULE-SET,Bing,Ⓜ️ Microsoft Bing
+    - RULE-SET,OneDrive,Ⓜ️ OneDrive
+    - RULE-SET,Microsoft,Ⓜ️ Microsoft Services
+    - "RULE-SET,Apple,\U0001F34E Apple Services"
+    - "RULE-SET,Telegram,\U0001F4F2 Telegram"
+    - "RULE-SET,AI,\U0001F4AC AI Platforms"
+    - "RULE-SET,NetEaseMusic,\U0001F3B6 NetEase Music"
+    - "RULE-SET,Epic,\U0001F3AE Gaming"
+    - "RULE-SET,Origin,\U0001F3AE Gaming"
+    - "RULE-SET,Sony,\U0001F3AE Gaming"
+    - "RULE-SET,Steam,\U0001F3AE Gaming"
+    - "RULE-SET,Nintendo,\U0001F3AE Gaming"
+    - "RULE-SET,YouTube,\U0001F4F9 YouTube"
+    - "RULE-SET,Netflix,\U0001F3A5 Netflix"
+    - "RULE-SET,Bahamut,\U0001F4FA Bahamut"
+    - "RULE-SET,BilibiliHMT,\U0001F4FA Bilibili"
+    - "RULE-SET,Bilibili,\U0001F4FA Bilibili"
+    - "RULE-SET,ChinaMedia,\U0001F30F China Media"
+    - "RULE-SET,ProxyMedia,\U0001F30D International Media"
+    - "RULE-SET,ProxyGFWlist,\U0001F680 Proxy Select"
+    - "RULE-SET,ChinaDomain,\U0001F3AF Global Direct"
+    - "RULE-SET,ChinaCompanyIp,\U0001F3AF Global Direct"
+    - "RULE-SET,Download,\U0001F3AF Global Direct"
+    - "GEOIP,CN,\U0001F3AF Global Direct"
+    - "MATCH,\U0001F41F Final Fallback"
