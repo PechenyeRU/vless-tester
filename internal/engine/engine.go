@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"regexp"
 	"time"
@@ -237,12 +238,28 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 		return 0, false, fmt.Errorf("engine: enabled protocols: %w", err)
 	}
 	allow := protocolAllowed(enabled)
+	candidates := make([]model.Server, 0, len(servers))
+	for _, srv := range servers {
+		if allow(string(srv.Protocol)) {
+			candidates = append(candidates, srv)
+		}
+	}
+
+	// Optional shuffle + per-run cap, so a large list can be sampled randomly
+	// across cycles instead of always testing the same prefix.
+	shuffle, maxProbes, err := e.Store.DispatchSettings(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("engine: dispatch settings: %w", err)
+	}
+	if shuffle {
+		rand.Shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
+	}
+	if maxProbes > 0 && len(candidates) > maxProbes {
+		candidates = candidates[:maxProbes]
+	}
 
 	n := e.fanout(ctx)
-	for _, srv := range servers {
-		if !allow(string(srv.Protocol)) {
-			continue
-		}
+	for _, srv := range candidates {
 		id, err := e.Store.UpsertServer(ctx, srv)
 		if err != nil {
 			return 0, false, fmt.Errorf("engine: upsert server: %w", err)

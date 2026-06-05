@@ -108,6 +108,8 @@ func newTestStore(t *testing.T) *store.Store {
 	_ = st.SetSetting(ctx, "output.success_limit", 0)
 	_ = st.SetSetting(ctx, "filter.name_include", "")
 	_ = st.SetSetting(ctx, "filter.name_exclude", "")
+	_ = st.SetSetting(ctx, "dispatch.shuffle", false)
+	_ = st.SetSetting(ctx, "dispatch.max_probes", 0)
 	t.Cleanup(st.Close)
 	return st
 }

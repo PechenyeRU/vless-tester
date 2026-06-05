@@ -109,6 +109,26 @@ func TestDispatchSkipsDisabledProtocols(t *testing.T) {
 	}
 }
 
+func TestDispatchMaxProbes(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	mustWorkerE(t, st, "w1")
+
+	// Cap the run to 1 server; with fan-out 1 that is 1 queued job.
+	if err := st.SetSetting(ctx, "dispatch.max_probes", 1); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.SetSetting(ctx, "dispatch.max_probes", 0) })
+	eng := newDistributedEngine(st, engine.Approval{MaxLatencyMs: 60000, RequiredWorkers: 1}, 1)
+	if _, dispatched, err := eng.DispatchCycle(ctx, twoServers(t)); err != nil || !dispatched {
+		t.Fatalf("dispatch: dispatched=%v err=%v", dispatched, err)
+	}
+	queued, _ := st.CountJobs(ctx, model.JobQueued)
+	if queued != 1 {
+		t.Fatalf("queued = %d, want 1 (max_probes cap)", queued)
+	}
+}
+
 func TestDistributedCycleEndToEnd(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

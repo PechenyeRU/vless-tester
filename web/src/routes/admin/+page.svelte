@@ -47,6 +47,8 @@
 		'iprisk.enabled': 'Edited above in "Media unlock" (IP-risk scoring).',
 		'iprisk.url': 'IP-risk provider URL override (empty = default ip-api.com).',
 		'sub.path': 'Obfuscated token for /sub: when set, the list is only served at /sub/<token> and bare /sub is hidden.',
+		'dispatch.shuffle': 'Edited above in "Output filters" (randomize server order per cycle).',
+		'dispatch.max_probes': 'Edited above in "Output filters" (cap servers tested per cycle; 0 = all).',
 		'funnel.stages': 'Edited above in "Test funnel".',
 		'notify.enabled': 'Edited above in "Notifications".',
 		'notify.urls': 'Edited above in "Notifications" (shoutrrr URLs).',
@@ -92,6 +94,8 @@
 	let speed = $state({ download_url: '', upload_url: '', streams: 6, download_mb: 0, timeout_ms: 30000, adaptive: true });
 	// Output filters.
 	let output = $state({ node_prefix: '', success_limit: 0, name_include: '', name_exclude: '' });
+	// Dispatch knobs.
+	let dispatch = $state({ shuffle: false, max_probes: 0 });
 
 	async function load() {
 		error = '';
@@ -121,6 +125,10 @@
 				success_limit: (sett && sett['output.success_limit']) ?? 0,
 				name_include: (sett && sett['filter.name_include']) || '',
 				name_exclude: (sett && sett['filter.name_exclude']) || ''
+			};
+			dispatch = {
+				shuffle: !!(sett && sett['dispatch.shuffle']),
+				max_probes: (sett && sett['dispatch.max_probes']) ?? 0
 			};
 			speed = {
 				download_url: (sett && sett['speed.download_url']) || '',
@@ -199,6 +207,19 @@
 				'filter.name_exclude': output.name_exclude.trim()
 			});
 			flash('Output filters saved');
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function saveDispatch() {
+		error = '';
+		try {
+			await api.putSettings({
+				'dispatch.shuffle': dispatch.shuffle,
+				'dispatch.max_probes': Number(dispatch.max_probes)
+			});
+			flash('Dispatch settings saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -673,6 +694,20 @@
 		</div>
 		<div class="mt-3">
 			<button class="btn btn-primary btn-sm" onclick={saveOutput}>Save output filters</button>
+		</div>
+
+		<div class="divider my-2"></div>
+		<div class="flex flex-wrap items-end gap-4">
+			<label class="label cursor-pointer gap-2">
+				<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={dispatch.shuffle} />
+				<span class="label-text">Shuffle test order</span>
+				<Help tip="Randomize the server order each cycle, so with a cap a large list is sampled across runs instead of always testing the same prefix." />
+			</label>
+			<label class="form-control">
+				<span class="label-text mb-1">Max probes / run <span class="text-base-content/50">(0 = all)</span></span>
+				<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={dispatch.max_probes} />
+			</label>
+			<button class="btn btn-primary btn-sm" onclick={saveDispatch}>Save dispatch</button>
 		</div>
 	</div>
 </div>
