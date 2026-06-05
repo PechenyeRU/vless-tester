@@ -79,7 +79,7 @@ func run(linksFile string) error {
 		Seq:       naming.Allocator{Backend: st.NewSeqBackend()},
 		Brand:     "@WhiteDNS",
 		WorkerID:  workerID(),
-		Approval:  engine.Approval{MaxLatencyMs: 2000, MinDlMBps: 0.5},
+		Approval:  engine.Approval{MaxLatencyMs: envInt("APPROVE_MAX_LATENCY_MS", 2000), MinDlMBps: envFloat("APPROVE_MIN_MBPS", 0.5)},
 	}
 
 	sum, err := eng.RunOnce(ctx, servers)
@@ -124,6 +124,15 @@ func envInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func envFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
 		}
 	}
 	return def
