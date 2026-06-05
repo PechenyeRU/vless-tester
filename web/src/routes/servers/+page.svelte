@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api.js';
 	import { flag, mbps, ms, ago, statusClass } from '$lib/format.js';
+	import Help from '$lib/Help.svelte';
 
 	let servers = $state([]);
 	let error = $state('');
@@ -34,7 +35,10 @@
 	onMount(load);
 </script>
 
-<h1 class="text-2xl font-bold mb-4">Servers</h1>
+<h1 class="text-2xl font-bold mb-4">
+	Servers
+	<Help tip="Every ingested node and its latest measurement. Filter by country (e.g. FR), worker, or minimum download speed. Click a name for per-worker history, media unlock and IP risk." pos="bottom" />
+</h1>
 
 <div class="card bg-base-100 shadow mb-4">
 	<div class="card-body p-4">

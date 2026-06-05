@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api.js';
 	import { flag, mbps, ms, ago, statusClass } from '$lib/format.js';
+	import Help from '$lib/Help.svelte';
 
 	let detail = $state(null);
 	let error = $state('');
@@ -58,7 +59,10 @@
 		{@const ipRisk = detail.checks.find((c) => c.name === 'ip_risk')}
 		{@const media = detail.checks.filter((c) => c.name !== 'ip_risk')}
 		{#if ipRisk}
-			<h2 class="text-lg font-semibold mb-2">IP risk</h2>
+			<h2 class="text-lg font-semibold mb-2">
+				IP risk
+				<Help tip="Reputation of the node's exit IP — lower is better. ~0 = clean/residential, ~25 = datacenter, ≥50 = flagged proxy/VPN (likely to be blocked by anti-fraud)." />
+			</h2>
 			<div class="card bg-base-100 shadow mb-6">
 				<div class="card-body flex-row items-center gap-3">
 					<span
@@ -77,7 +81,10 @@
 			</div>
 		{/if}
 		{#if media.length}
-			<h2 class="text-lg font-semibold mb-2">Media unlock</h2>
+			<h2 class="text-lg font-semibold mb-2">
+				Media unlock
+				<Help tip="Whether each streaming/AI service works through this node (green = unlocked). The region in the detail feeds the public name tag, e.g. GPT⁺-US." />
+			</h2>
 			<div class="card bg-base-100 shadow mb-6">
 				<div class="card-body flex-row flex-wrap gap-2">
 					{#each media as c}

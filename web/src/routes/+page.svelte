@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api.js';
 	import { flag, mbps, ago } from '$lib/format.js';
+	import Help from '$lib/Help.svelte';
 
 	let stats = $state(null);
 	let workers = $state([]);
@@ -24,11 +25,11 @@
 
 	// Public subscription distribution links (served unauthenticated by /sub).
 	const subTargets = [
-		{ id: 'base64', label: 'Base64' },
-		{ id: 'singbox', label: 'sing-box' },
-		{ id: 'clash', label: 'Clash / Mihomo' },
-		{ id: 'v2ray', label: 'V2Ray' },
-		{ id: 'surge', label: 'Surge' }
+		{ id: 'base64', label: 'Base64', desc: 'Universal base64 list — v2rayN, Nekobox, most clients.' },
+		{ id: 'singbox', label: 'sing-box', desc: 'sing-box JSON (outbounds + selector/urltest).' },
+		{ id: 'clash', label: 'Clash / Mihomo', desc: 'Full mihomo config with proxy-groups + ACL4SSR rules.' },
+		{ id: 'v2ray', label: 'V2Ray', desc: 'Plain newline list of share URIs.' },
+		{ id: 'surge', label: 'Surge', desc: 'Surge proxy list (supported protocols only).' }
 	];
 	let copied = $state('');
 
@@ -71,44 +72,65 @@
 {:else if stats}
 	<div class="stats stats-vertical sm:stats-horizontal shadow w-full bg-base-100 mb-6">
 		<div class="stat">
-			<div class="stat-title">Servers</div>
+			<div class="stat-title">
+				Servers <Help tip="Unique deduplicated proxy endpoints ingested from all sources." pos="bottom" />
+			</div>
 			<div class="stat-value text-primary">{stats.servers}</div>
 		</div>
 		<div class="stat">
-			<div class="stat-title">Test runs</div>
+			<div class="stat-title">
+				Test runs <Help tip="Total measurements recorded across all workers and cycles." pos="bottom" />
+			</div>
 			<div class="stat-value">{stats.runs}</div>
 		</div>
 		<div class="stat">
-			<div class="stat-title">Workers</div>
+			<div class="stat-title">
+				Workers <Help tip="Probes in the fleet. Alive = seen within the heartbeat window; total includes recently dead ones." pos="bottom" />
+			</div>
 			<div class="stat-value">
 				{aliveCount}<span class="text-base font-normal text-base-content/50">/{workers.length}</span>
 			</div>
 			<div class="stat-desc">alive / total</div>
 		</div>
 		<div class="stat">
-			<div class="stat-title">Countries</div>
+			<div class="stat-title">
+				Countries <Help tip="Distinct countries among tested nodes (GeoIP on the exit IP)." pos="bottom" />
+			</div>
 			<div class="stat-value">{(stats.by_country || []).length}</div>
 		</div>
 	</div>
 
 	<div class="card bg-base-100 shadow mb-6">
 		<div class="card-body">
-			<h2 class="text-lg font-semibold">Subscriptions</h2>
+			<h2 class="text-lg font-semibold">
+				Subscriptions
+				<Help tip="Public, unauthenticated distribution links (GET /sub?target=…). Anyone with a link can fetch the working list, so treat them as semi-secret. They update on each publish." />
+			</h2>
 			<p class="text-sm text-base-content/60">
 				Public distribution links for the latest working list. Point your client at one of these.
 			</p>
-			<div class="grid gap-2 sm:grid-cols-2 mt-2">
+			<div class="grid gap-3 sm:grid-cols-2 mt-2">
 				{#each subTargets as t}
-					<div class="join w-full">
-						<span class="join-item btn btn-sm btn-disabled w-32 justify-start">{t.label}</span>
-						<input
-							class="join-item input input-sm input-bordered flex-1 mono"
-							readonly
-							value={subUrl(t.id)}
-						/>
-						<button class="join-item btn btn-sm btn-primary" onclick={() => copy(t.id)}>
-							{copied === t.id ? 'Copied' : 'Copy'}
-						</button>
+					<div>
+						<div class="join w-full">
+							<span class="join-item btn btn-sm btn-disabled w-32 justify-start">{t.label}</span>
+							<input
+								class="join-item input input-sm input-bordered flex-1 mono text-xs"
+								readonly
+								value={subUrl(t.id)}
+							/>
+							<a
+								class="join-item btn btn-sm"
+								href={subUrl(t.id)}
+								target="_blank"
+								rel="noreferrer"
+								aria-label="open {t.label} subscription">↗</a
+							>
+							<button class="join-item btn btn-sm btn-primary" onclick={() => copy(t.id)}>
+								{copied === t.id ? 'Copied' : 'Copy'}
+							</button>
+						</div>
+						<p class="text-xs text-base-content/50 mt-0.5 ml-1">{t.desc}</p>
 					</div>
 				{/each}
 			</div>

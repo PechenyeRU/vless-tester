@@ -2,11 +2,51 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api.js';
 	import { ago } from '$lib/format.js';
+	import Help from '$lib/Help.svelte';
 
 	// Protocol types the platform understands (matches model.Protocol).
 	const PROTOCOLS = ['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hysteria', 'tuic', 'anytls', 'socks'];
 	// Media-unlock platforms the workers can probe (matches checks.KnownMediaPlatforms).
 	const MEDIA = ['openai', 'gemini', 'claude', 'spotify', 'netflix', 'youtube', 'disney', 'tiktok'];
+
+	// The configurable funnel stages run after the latency gate, in order. The UI
+	// lets the operator reorder them and toggle each one's gate.
+	const FUNNEL_DEFAULT = [
+		{ check: 'media', gate: true },
+		{ check: 'ip_risk', gate: false },
+		{ check: 'speed', gate: false }
+	];
+	const STAGE_META = {
+		latency: { label: 'Latency', desc: 'Connectivity check — always runs first; a node that cannot connect is dropped.' },
+		media: { label: 'Media unlock', desc: 'Probe the streaming/AI platforms selected below.' },
+		ip_risk: { label: 'IP risk', desc: "Score the exit IP's reputation (proxy/datacenter/mobile)." },
+		speed: { label: 'Speed', desc: 'Measure download/upload throughput (the expensive leg).' }
+	};
+
+	// Per-key explanations for the raw settings table.
+	const SETTING_HELP = {
+		'approval.max_latency_ms': 'Max latency (ms) a node may have to be approved.',
+		'approval.min_dl_mbps': 'Min download speed (MB/s) a node must reach to be approved.',
+		'approval.required_workers': 'Distinct workers that must each confirm a node before it is published.',
+		'approval.allow_partial': 'When the fleet is smaller than required_workers, approve with as few as 1.',
+		'speed.streams': 'Parallel download streams used in the speed test.',
+		'speed.bytes': 'Max bytes downloaded per speed test (adaptive may stop earlier).',
+		'speed.adaptive': 'Stop the speed test early once throughput is clear.',
+		'dispatch.interval': 'How often a new test cycle is dispatched (e.g. 12h, 30m).',
+		'reconcile.interval': 'How often dead-worker jobs are requeued and drained batches published.',
+		'sources.refresh': 'How often subscription sources are refetched.',
+		'publish.interval': 'How often the working list is published.',
+		'publish.github_repo': 'Separate GitHub repo the working list is pushed to.',
+		'geoip.refresh': 'How often the GeoIP database is refreshed (~2 weeks).',
+		'jobs.lease_ttl': 'A claimed job older than this is considered dead and requeued.',
+		'jobs.max_attempts': 'Max requeues before a job is marked failed.',
+		'protocols.enabled': 'Edited above in "Protocols (global)".',
+		'media.enabled': 'Edited above in "Media unlock".',
+		'media.platforms': 'Edited above in "Media unlock" (tested platforms).',
+		'media.require': 'Edited above in "Media unlock" (required to unlock).',
+		'iprisk.enabled': 'Edited above in "Media unlock" (IP-risk scoring).',
+		'funnel.stages': 'Edited above in "Test funnel".'
+	};
 
 	let sources = $state([]);
 	let settings = $state({}); // key -> string (raw JSON text, editable)
@@ -30,6 +70,8 @@
 	let mediaTested = $state(new Set());
 	let mediaRequire = $state(new Set());
 	let ipRiskEnabled = $state(false);
+	// Funnel pipeline (ordered list of {check, gate}).
+	let funnelStages = $state([]);
 
 	async function load() {
 		error = '';
@@ -50,6 +92,8 @@
 			mediaTested = new Set((sett && sett['media.platforms']) || []);
 			mediaRequire = new Set((sett && sett['media.require']) || []);
 			ipRiskEnabled = !!(sett && sett['iprisk.enabled']);
+			const fs = sett && sett['funnel.stages'];
+			funnelStages = Array.isArray(fs) && fs.length ? fs.map((s) => ({ ...s })) : FUNNEL_DEFAULT.map((s) => ({ ...s }));
 		} catch (e) {
 			error = e.message;
 		}
@@ -65,6 +109,31 @@
 				'iprisk.enabled': ipRiskEnabled
 			});
 			flash('Media settings saved');
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	// moveStage reorders a funnel stage up (-1) or down (+1).
+	function moveStage(i, dir) {
+		const j = i + dir;
+		if (j < 0 || j >= funnelStages.length) return;
+		const next = funnelStages.slice();
+		[next[i], next[j]] = [next[j], next[i]];
+		funnelStages = next;
+	}
+
+	function toggleGate(i) {
+		const next = funnelStages.slice();
+		next[i] = { ...next[i], gate: !next[i].gate };
+		funnelStages = next;
+	}
+
+	async function saveFunnel() {
+		error = '';
+		try {
+			await api.setFunnel(funnelStages);
+			flash('Funnel saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -217,7 +286,10 @@
 
 <div class="card bg-base-100 shadow mb-6">
 	<div class="card-body">
-		<h2 class="card-title text-lg">Actions</h2>
+		<h2 class="card-title text-lg">
+			Actions
+			<Help tip="Trigger a coordinator job now instead of waiting for the schedule. Refresh sources re-ingests + dispatches a cycle; Publish re-evaluates the approval gate against history and pushes (no retest)." />
+		</h2>
 		<p class="text-sm text-base-content/60">Out-of-band triggers handled by the coordinator's scheduler.</p>
 		<div class="flex flex-wrap gap-2 mt-2">
 			{#each actions as a}
@@ -374,7 +446,10 @@
 
 <div class="card bg-base-100 shadow mb-6">
 	<div class="card-body">
-		<h2 class="card-title text-lg">Media unlock</h2>
+		<h2 class="card-title text-lg">
+			Media unlock
+			<Help tip="Probe whether streaming/AI services work through each node. Results show as badges per node and as tags in the public name (GPT⁺, NF, …)." />
+		</h2>
 		<label class="label cursor-pointer justify-start gap-2 w-fit">
 			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={mediaEnabled} />
 			<span class="label-text">Enable media-unlock checks</span>
@@ -432,7 +507,57 @@
 
 <div class="card bg-base-100 shadow mb-6">
 	<div class="card-body">
-		<h2 class="card-title text-lg">Sources</h2>
+		<h2 class="card-title text-lg">
+			Test funnel
+			<Help
+				tip="The order tests run for each node, after the latency gate. Reorder with ↑/↓; a gated stage that doesn't pass skips the remaining stages for that node (saves time / drops unwanted nodes)."
+			/>
+		</h2>
+		<p class="text-sm text-base-content/60">
+			Latency always runs first. A <span class="font-medium">gated</span> stage that doesn't pass skips
+			the rest of the funnel for that node.
+		</p>
+
+		<ul class="mt-3 flex flex-col gap-2">
+			<li class="flex items-center gap-3 rounded-lg bg-base-200 px-3 py-2 opacity-70">
+				<span class="badge badge-ghost badge-sm w-6 justify-center">1</span>
+				<div class="flex-1">
+					<span class="font-medium">{STAGE_META.latency.label}</span>
+					<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">{STAGE_META.latency.desc}</span>
+				</div>
+				<span class="badge badge-sm badge-warning">always gates</span>
+			</li>
+			{#each funnelStages as st, i}
+				<li class="flex items-center gap-3 rounded-lg bg-base-200 px-3 py-2">
+					<span class="badge badge-ghost badge-sm w-6 justify-center">{i + 2}</span>
+					<div class="flex-1">
+						<span class="font-medium">{STAGE_META[st.check]?.label || st.check}</span>
+						<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">{STAGE_META[st.check]?.desc || ''}</span>
+					</div>
+					<label class="label cursor-pointer gap-2 py-0">
+						<span class="label-text text-sm">gate</span>
+						<input type="checkbox" class="toggle toggle-xs toggle-primary" checked={st.gate} onchange={() => toggleGate(i)} />
+					</label>
+					<div class="join">
+						<button class="btn btn-xs join-item" onclick={() => moveStage(i, -1)} disabled={i === 0} aria-label="move up">↑</button>
+						<button class="btn btn-xs join-item" onclick={() => moveStage(i, 1)} disabled={i === funnelStages.length - 1} aria-label="move down">↓</button>
+					</div>
+				</li>
+			{/each}
+		</ul>
+
+		<div class="mt-3">
+			<button class="btn btn-primary btn-sm" onclick={saveFunnel}>Save funnel</button>
+		</div>
+	</div>
+</div>
+
+<div class="card bg-base-100 shadow mb-6">
+	<div class="card-body">
+		<h2 class="card-title text-lg">
+			Sources
+			<Help tip="Subscription URLs or local files the coordinator fetches, parses and tests every cycle. Disabled sources are skipped." />
+		</h2>
 		<div class="overflow-x-auto">
 			<table class="table table-sm">
 				<thead>
@@ -491,7 +616,10 @@
 
 <div class="card bg-base-100 shadow">
 	<div class="card-body">
-		<h2 class="card-title text-lg">Settings</h2>
+		<h2 class="card-title text-lg">
+			Settings
+			<Help tip="Raw key/value config (JSON). Most have a typed editor in the cards above; hover the ⓘ on a key for what it does." />
+		</h2>
 		<div class="overflow-x-auto">
 			<table class="table table-sm">
 				<thead>
@@ -500,7 +628,9 @@
 				<tbody>
 					{#each Object.keys(settings).sort() as key}
 						<tr class="hover">
-							<td class="mono text-sm">{key}</td>
+							<td class="mono text-sm">
+								{key}{#if SETTING_HELP[key]}<Help tip={SETTING_HELP[key]} pos="right" />{/if}
+							</td>
 							<td><input class="input input-bordered input-sm w-full mono" bind:value={settings[key]} /></td>
 							<td><button class="btn btn-xs" onclick={() => saveSetting(key)}>Save</button></td>
 						</tr>
