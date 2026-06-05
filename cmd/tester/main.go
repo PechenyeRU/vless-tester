@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
@@ -38,6 +39,12 @@ func run(linksFile string) error {
 	servers, failed := ingest.ParseSubscription(string(raw))
 	servers, dropped := ingest.Dedup(servers)
 	log.Printf("parsed %d servers (%d unparseable lines, %d duplicates removed)", len(servers), len(failed), dropped)
+
+	// Optional cap for sampling a large subscription during real test runs.
+	if limit := envInt("LIMIT", 0); limit > 0 && limit < len(servers) {
+		servers = servers[:limit]
+		log.Printf("limited to %d servers", limit)
+	}
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -111,4 +118,13 @@ func workerID() string {
 		return v
 	}
 	return "local"
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
 }

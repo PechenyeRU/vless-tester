@@ -99,7 +99,13 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		}
 
 		country := e.country(ctx, srv.Host)
-		seqName, err := e.Seq.Assign(ctx, srv.Fingerprint, country)
+		// Unknown country (e.g. CDN/anycast IPs) still gets a stable name under
+		// the "XX" bucket instead of a bare number.
+		seqCountry := country
+		if seqCountry == "" {
+			seqCountry = "XX"
+		}
+		seqName, err := e.Seq.Assign(ctx, srv.Fingerprint, seqCountry)
 		if err != nil {
 			return sum, fmt.Errorf("engine: assign seq: %w", err)
 		}
