@@ -10,6 +10,13 @@ export function setToken(t) {
 	if (browser) localStorage.setItem(TOKEN_KEY, t);
 }
 
+// onUnauthorized registers a handler invoked when the API returns 401 (a stale
+// or revoked token), so the app can drop the session and bounce to /login.
+let unauthorizedHandler = null;
+export function onUnauthorized(fn) {
+	unauthorizedHandler = fn;
+}
+
 // buildServerQuery turns a filter object into a /servers query string. Pure and
 // dependency-free so it is unit-testable without a browser. Empty/zero fields
 // are omitted.
@@ -34,6 +41,7 @@ async function req(method, path, body) {
 		body: body !== undefined ? JSON.stringify(body) : undefined
 	});
 	if (!res.ok) {
+		if (res.status === 401 && unauthorizedHandler) unauthorizedHandler();
 		let msg = res.statusText;
 		try {
 			const data = await res.json();
@@ -57,5 +65,8 @@ export const api = {
 	toggleSource: (id, enabled) => req('PUT', '/sources', { id, enabled }),
 	settings: () => req('GET', '/settings'),
 	putSettings: (patch) => req('PUT', '/settings', patch),
-	action: (name) => req('POST', '/actions/' + name)
+	action: (name) => req('POST', '/actions/' + name),
+	workerTokens: () => req('GET', '/worker-tokens'),
+	createWorkerToken: (name) => req('POST', '/worker-tokens', { name }),
+	revokeWorkerToken: (id) => req('DELETE', '/worker-tokens/' + id)
 };

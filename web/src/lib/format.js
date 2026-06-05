@@ -30,3 +30,11 @@ export function ago(ts, now = Date.now()) {
 	if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
 	return `${Math.floor(secs / 86400)}d`;
 }
+
+// statusClass maps a run/server status to a daisyUI badge modifier.
+export function statusClass(status) {
+	if (status === 'ok') return 'badge-success';
+	if (!status) return 'badge-ghost';
+	if (status === 'timeout') return 'badge-warning';
+	return 'badge-error';
+}
