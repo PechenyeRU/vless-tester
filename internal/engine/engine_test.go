@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/whitedns/vless-tester/internal/checks"
 	"github.com/whitedns/vless-tester/internal/engine"
 	"github.com/whitedns/vless-tester/internal/ingest"
@@ -57,12 +58,33 @@ type zeroSrc struct{}
 
 func (zeroSrc) Read(p []byte) (int, error) { return len(p), nil }
 
+// dbTestLock matches the key used by the store package so DB integration tests
+// serialize across packages sharing one database.
+const dbTestLock = 913551
+
+func lockDB(t *testing.T, dsn string) {
+	t.Helper()
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		return
+	}
+	if _, err := conn.Exec(context.Background(), "SELECT pg_advisory_lock($1)", dbTestLock); err != nil {
+		conn.Close(context.Background())
+		return
+	}
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", dbTestLock)
+		conn.Close(context.Background())
+	})
+}
+
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping engine integration test")
 	}
+	lockDB(t, dsn)
 	ctx := context.Background()
 	st, err := store.Open(ctx, dsn)
 	if err != nil {
@@ -72,7 +94,7 @@ func newTestStore(t *testing.T) *store.Store {
 		t.Fatalf("migrate: %v", err)
 	}
 	if _, err := st.Pool().Exec(ctx,
-		`TRUNCATE checks, test_runs, jobs, country_seq, servers, workers, sources RESTART IDENTITY CASCADE`,
+		`TRUNCATE checks, test_runs, batches, jobs, country_seq, servers, workers, sources RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -177,6 +199,76 @@ func TestEngineStableSeqAcrossRuns(t *testing.T) {
 		t.Fatalf("seq drifted: %q -> %q", first.SeqName, second.SeqName)
 	}
 }
+
+// TestEngineRegateWithoutRetest proves the history-driven gate: after one test
+// cycle, raising the speed threshold and re-publishing changes the approved set
+// without running any new proxy test (the prober is swapped for one that fails
+// if called).
+func TestEngineRegateWithoutRetest(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+
+	eng := newEngine(st, srv)
+	eng.Speed = checks.SpeedCheck{Config: checks.SpeedConfig{
+		DownloadURL: srv.URL + "/down",
+		UploadURL:   srv.URL + "/up",
+		Streams:     2,
+		Bytes:       200_000,
+	}}
+	eng.Approval = engine.Approval{MaxLatencyMs: 60000, MinDlMBps: 0}
+
+	servers, _ := ingest.ParseList(strings.Join([]string{
+		"vless://uuid@8.8.8.8:443?type=ws#a",
+		"trojan://pw@1.1.1.1:443#b",
+	}, "\n"))
+
+	ctx := context.Background()
+	first, err := eng.RunOnce(ctx, servers)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if first.Approved != 2 {
+		t.Fatalf("initial approved = %d, want 2", first.Approved)
+	}
+
+	// Make any further proxy test fail, then re-gate with an impossibly high
+	// speed bar and republish purely from history.
+	eng.Prober = failProber{}
+	eng.Approval = engine.Approval{MaxLatencyMs: 60000, MinDlMBps: 1e9}
+
+	regated, err := eng.PublishFromHistory(ctx)
+	if err != nil {
+		t.Fatalf("PublishFromHistory: %v", err)
+	}
+	if regated.Approved != 0 {
+		t.Fatalf("re-gated approved = %d, want 0 (no server beats 1e9 MB/s)", regated.Approved)
+	}
+
+	// Lowering the bar again republishes the full set, still without testing.
+	eng.Approval = engine.Approval{MaxLatencyMs: 60000, MinDlMBps: 0}
+	back, err := eng.PublishFromHistory(ctx)
+	if err != nil {
+		t.Fatalf("PublishFromHistory (low gate): %v", err)
+	}
+	if back.Approved != 2 {
+		t.Fatalf("restored approved = %d, want 2", back.Approved)
+	}
+}
+
+// failProber fails if Start is ever called, guarding that PublishFromHistory
+// performs no proxy tests.
+type failProber struct{}
+
+func (failProber) Start(context.Context, model.Server) (engine.Instance, error) {
+	return nil, errNoTest
+}
+
+var errNoTest = errTest("prober must not be called during history-only publish")
+
+type errTest string
+
+func (e errTest) Error() string { return string(e) }
 
 func TestEngineLatencyFailSkipsApproval(t *testing.T) {
 	st := newTestStore(t)

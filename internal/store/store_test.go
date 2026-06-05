@@ -7,12 +7,35 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/store"
 )
 
 // testDSN returns the integration database URL, or empty when not configured.
 func testDSN() string { return os.Getenv("TEST_DATABASE_URL") }
+
+// dbTestLock is the advisory-lock key shared by all DB integration tests.
+const dbTestLock = 913551
+
+// lockDB serializes DB-backed tests across packages that share one database
+// (their TRUNCATEs would otherwise clobber each other under parallel package
+// execution). It holds a session advisory lock for the duration of the test.
+func lockDB(t *testing.T, dsn string) {
+	t.Helper()
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		return // best effort; serial runs (-p 1) still work
+	}
+	if _, err := conn.Exec(context.Background(), "SELECT pg_advisory_lock($1)", dbTestLock); err != nil {
+		conn.Close(context.Background())
+		return
+	}
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", dbTestLock)
+		conn.Close(context.Background())
+	})
+}
 
 // newTestStore connects to TEST_DATABASE_URL, migrates, and returns a store with
 // a clean slate. It skips (not fails) when no database is reachable, so the unit
@@ -23,6 +46,7 @@ func newTestStore(t *testing.T) *store.Store {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping store integration tests")
 	}
+	lockDB(t, dsn)
 	ctx := context.Background()
 	st, err := store.Open(ctx, dsn)
 	if err != nil {

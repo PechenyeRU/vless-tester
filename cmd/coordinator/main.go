@@ -77,6 +77,21 @@ func run() error {
 		},
 	})
 
+	// Republish: re-evaluate the approval gate against stored history and push,
+	// without re-testing. Manual-only (Interval 0, no run-on-start); the Phase 2
+	// UI triggers it after a gate change.
+	sched.Add(scheduler.Job{
+		Name: "republish",
+		Run: func(ctx context.Context) error {
+			sum, err := eng.PublishFromHistory(ctx)
+			if err != nil {
+				return err
+			}
+			log.Printf("republish: approved %d (from history, no retest)", sum.Approved)
+			return nil
+		},
+	})
+
 	// GeoIP refresh (only when credentials are configured).
 	if acc, key := os.Getenv("MAXMIND_ACCOUNT_ID"), os.Getenv("MAXMIND_LICENSE_KEY"); acc != "" && key != "" {
 		dl := &naming.MaxMindDownloader{AccountID: acc, LicenseKey: key}

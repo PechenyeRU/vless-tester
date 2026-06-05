@@ -10,12 +10,12 @@ import (
 // InsertTestRun records one measurement and returns its ID.
 func (s *Store) InsertTestRun(ctx context.Context, r model.TestRun) (int64, error) {
 	const q = `
-		INSERT INTO test_runs (server_id, worker_id, phase, latency_ms, dl_mbps, ul_mbps, status, error)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO test_runs (server_id, worker_id, batch_id, phase, latency_ms, dl_mbps, ul_mbps, status, error)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`
 	var id int64
 	if err := s.pool.QueryRow(ctx, q,
-		r.ServerID, r.WorkerID, string(r.Phase), r.LatencyMs, r.DlMbps, r.UlMbps,
+		r.ServerID, r.WorkerID, r.BatchID, string(r.Phase), r.LatencyMs, r.DlMbps, r.UlMbps,
 		string(r.Status), nullString(r.Error),
 	).Scan(&id); err != nil {
 		return 0, fmt.Errorf("insert test run: %w", err)

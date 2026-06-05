@@ -79,7 +79,13 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		return sum, fmt.Errorf("engine: register worker: %w", err)
 	}
 
-	var approved []output.PublicServer
+	// Every cycle is a batch: results are written to the append-only history
+	// tagged with this batch so publishing can select "only the latest batch".
+	batchID, err := e.Store.CreateBatch(ctx, "scheduled")
+	if err != nil {
+		return sum, fmt.Errorf("engine: create batch: %w", err)
+	}
+
 	for _, srv := range servers {
 		id, err := e.Store.UpsertServer(ctx, srv)
 		if err != nil {
@@ -88,13 +94,13 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		sum.Tested++
 
 		lat, sp := e.probe(ctx, srv)
-		if err := e.recordRun(ctx, id, model.PhaseLatency, lat); err != nil {
+		if err := e.recordRun(ctx, id, batchID, model.PhaseLatency, lat); err != nil {
 			return sum, err
 		}
 		if !lat.Passed {
 			continue
 		}
-		if err := e.recordRun(ctx, id, model.PhaseSpeed, sp); err != nil {
+		if err := e.recordRun(ctx, id, batchID, model.PhaseSpeed, sp); err != nil {
 			return sum, err
 		}
 
@@ -112,17 +118,54 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		if err := e.Store.SetServerGeo(ctx, id, country, seqName); err != nil {
 			return sum, fmt.Errorf("engine: set geo: %w", err)
 		}
+	}
 
-		if e.Approval.approved(lat.LatencyMs, sp.DlMbps) {
+	if err := e.Store.FinishBatch(ctx, batchID); err != nil {
+		return sum, fmt.Errorf("engine: finish batch: %w", err)
+	}
+
+	// Publishing always reads the append-only history, so it is identical
+	// whether it follows a test cycle or runs standalone after a gate change.
+	pub, err := e.PublishFromHistory(ctx)
+	if err != nil {
+		return sum, err
+	}
+	sum.Approved = pub.Approved
+	sum.Artifacts = pub.Artifacts
+	return sum, nil
+}
+
+// PublishFromHistory re-evaluates the approval gate against the stored test
+// history and publishes the working list. It runs no proxy tests, so changing
+// the quality/quantity gate and re-publishing never requires re-testing.
+func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
+	var sum Summary
+
+	// Default to the latest completed batch; fall back to the rolling
+	// latest-per-server view when no batch has finished yet.
+	var filter *int64
+	if id, ok, err := e.Store.LatestFinishedBatch(ctx); err != nil {
+		return sum, fmt.Errorf("engine: latest batch: %w", err)
+	} else if ok {
+		filter = &id
+	}
+	results, err := e.Store.ServerResults(ctx, filter)
+	if err != nil {
+		return sum, fmt.Errorf("engine: read history: %w", err)
+	}
+
+	var approved []output.PublicServer
+	for _, r := range results {
+		if e.Approval.approved(r.LatencyMs, r.DlMbps) {
 			approved = append(approved, output.PublicServer{
-				RawURI:    srv.RawURI,
-				Country:   country,
-				SeqName:   seqName,
-				SpeedMBps: deref(sp.DlMbps),
+				RawURI:    r.RawURI,
+				Country:   r.Country,
+				SeqName:   r.SeqName,
+				SpeedMBps: deref(r.DlMbps),
 			})
-			sum.Approved++
 		}
 	}
+	sum.Approved = len(approved)
 
 	files, err := output.BuildArtifacts(approved, output.Options{Brand: e.Brand})
 	if err != nil {
@@ -167,7 +210,7 @@ func (e *Engine) probe(ctx context.Context, srv model.Server) (lat, sp checks.Re
 	return lat, sp
 }
 
-func (e *Engine) recordRun(ctx context.Context, serverID int64, phase model.JobPhase, res checks.Result) error {
+func (e *Engine) recordRun(ctx context.Context, serverID, batchID int64, phase model.JobPhase, res checks.Result) error {
 	status := model.StatusError
 	if res.Passed {
 		status = model.StatusOK
@@ -175,6 +218,7 @@ func (e *Engine) recordRun(ctx context.Context, serverID int64, phase model.JobP
 	_, err := e.Store.InsertTestRun(ctx, model.TestRun{
 		ServerID:  serverID,
 		WorkerID:  e.WorkerID,
+		BatchID:   &batchID,
 		Phase:     phase,
 		LatencyMs: res.LatencyMs,
 		DlMbps:    res.DlMbps,

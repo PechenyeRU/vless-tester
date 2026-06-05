@@ -98,11 +98,13 @@ const (
 	StatusRefused RunStatus = "refused"
 )
 
-// TestRun is one measurement of a server from one worker.
+// TestRun is one measurement of a server from one worker. BatchID ties it to the
+// coordinator cycle that produced it.
 type TestRun struct {
 	ID        int64
 	ServerID  int64
 	WorkerID  string
+	BatchID   *int64
 	Phase     JobPhase
 	RunAt     time.Time
 	LatencyMs *int
