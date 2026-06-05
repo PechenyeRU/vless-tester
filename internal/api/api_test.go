@@ -77,8 +77,12 @@ func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64)
 	return n, nil
 }
 
+// handlerProvider is satisfied by both *Server (worker plane) and *AdminServer
+// (admin plane), so the do() helper drives either.
+type handlerProvider interface{ Handler() http.Handler }
+
 // do issues a request against the server's handler and returns the recorder.
-func do(t *testing.T, s *Server, method, path, token, body string) *httptest.ResponseRecorder {
+func do(t *testing.T, s handlerProvider, method, path, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {

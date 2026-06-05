@@ -1,0 +1,217 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"testing"
+
+	"github.com/whitedns/vless-tester/internal/model"
+	"github.com/whitedns/vless-tester/internal/store"
+)
+
+var errNotFound = errors.New("not found")
+
+// fakeAdminStore is an in-memory AdminStore so the admin handlers run with no
+// database. Each field scripts one method's output; calls are recorded.
+type fakeAdminStore struct {
+	servers     []store.ServerSummary
+	listFilter  store.ServerFilter
+	server      model.Server
+	getErr      error
+	history     []store.RunRecord
+	workers     []model.Worker
+	stats       store.Stats
+	sources     []model.Source
+	settings    map[string]json.RawMessage
+	upserted    []model.Source
+	toggled     map[int64]bool
+	setSettings map[string]json.RawMessage
+}
+
+func newAdminFake() *fakeAdminStore {
+	return &fakeAdminStore{
+		settings:    map[string]json.RawMessage{},
+		toggled:     map[int64]bool{},
+		setSettings: map[string]json.RawMessage{},
+	}
+}
+
+func (f *fakeAdminStore) ListServers(_ context.Context, fl store.ServerFilter) ([]store.ServerSummary, error) {
+	f.listFilter = fl
+	return f.servers, nil
+}
+func (f *fakeAdminStore) GetServer(_ context.Context, id int64) (model.Server, error) {
+	if f.getErr != nil {
+		return model.Server{}, f.getErr
+	}
+	f.server.ID = id
+	return f.server, nil
+}
+func (f *fakeAdminStore) ServerHistory(_ context.Context, _ int64, _ int) ([]store.RunRecord, error) {
+	return f.history, nil
+}
+func (f *fakeAdminStore) ListWorkers(_ context.Context) ([]model.Worker, error) {
+	return f.workers, nil
+}
+func (f *fakeAdminStore) Stats(_ context.Context) (store.Stats, error) { return f.stats, nil }
+func (f *fakeAdminStore) ListAllSources(_ context.Context) ([]model.Source, error) {
+	return f.sources, nil
+}
+func (f *fakeAdminStore) UpsertSource(_ context.Context, kind model.SourceKind, loc string) error {
+	f.upserted = append(f.upserted, model.Source{Kind: kind, Location: loc})
+	return nil
+}
+func (f *fakeAdminStore) SetSourceEnabled(_ context.Context, id int64, enabled bool) error {
+	f.toggled[id] = enabled
+	return nil
+}
+func (f *fakeAdminStore) AllSettings(_ context.Context) (map[string]json.RawMessage, error) {
+	return f.settings, nil
+}
+func (f *fakeAdminStore) SetSetting(_ context.Context, key string, value any) error {
+	f.setSettings[key] = value.(json.RawMessage)
+	return nil
+}
+
+func TestAdminAuth(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Token: "admin"}
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "", ``); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token: want 401, got %d", rec.Code)
+	}
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "admin", ``); rec.Code != http.StatusOK {
+		t.Fatalf("correct token: want 200, got %d", rec.Code)
+	}
+}
+
+func TestAdminListServersParsesFilter(t *testing.T) {
+	f := newAdminFake()
+	f.servers = []store.ServerSummary{{ID: 1, Protocol: model.ProtocolVLESS, Country: "FR"}}
+	s := &AdminServer{Store: f}
+
+	rec := do(t, s, http.MethodGet, "/api/v1/servers?country=FR&min_speed=5.5&worker=swift-otter-1&limit=10", "", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if f.listFilter.Country != "FR" || f.listFilter.MinSpeed != 5.5 || f.listFilter.Worker != "swift-otter-1" || f.listFilter.Limit != 10 {
+		t.Fatalf("filter not parsed: %+v", f.listFilter)
+	}
+	var got []store.ServerSummary
+	mustJSON(t, rec, &got)
+	if len(got) != 1 || got[0].Country != "FR" {
+		t.Fatalf("unexpected servers: %+v", got)
+	}
+}
+
+func TestAdminServerDetail(t *testing.T) {
+	f := newAdminFake()
+	f.server = model.Server{Protocol: model.ProtocolTrojan, Host: "h", Port: 443, Country: "CH", SeqName: "CH1", RawURI: "trojan://x"}
+	f.history = []store.RunRecord{{ID: 9, WorkerID: "w1", Status: model.StatusOK}}
+	s := &AdminServer{Store: f}
+
+	rec := do(t, s, http.MethodGet, "/api/v1/servers/42", "", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var resp serverDetailResp
+	mustJSON(t, rec, &resp)
+	if resp.Server.ID != 42 || resp.Server.RawURI != "trojan://x" || len(resp.History) != 1 || resp.History[0].WorkerID != "w1" {
+		t.Fatalf("unexpected detail: %+v", resp)
+	}
+}
+
+func TestAdminServerDetailBadID(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake()}
+	if rec := do(t, s, http.MethodGet, "/api/v1/servers/abc", "", ``); rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestAdminServerDetailNotFound(t *testing.T) {
+	f := newAdminFake()
+	f.getErr = errNotFound
+	s := &AdminServer{Store: f}
+	if rec := do(t, s, http.MethodGet, "/api/v1/servers/99", "", ``); rec.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestAdminPutSourceUpsert(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPut, "/api/v1/sources", "", `{"kind":"subscription_url","location":"https://x/sub"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if len(f.upserted) != 1 || f.upserted[0].Location != "https://x/sub" || f.upserted[0].Kind != model.SourceSubscriptionURL {
+		t.Fatalf("upsert not recorded: %+v", f.upserted)
+	}
+}
+
+func TestAdminPutSourceToggle(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPut, "/api/v1/sources", "", `{"id":7,"enabled":false}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if en, ok := f.toggled[7]; !ok || en {
+		t.Fatalf("toggle not recorded: %+v", f.toggled)
+	}
+}
+
+func TestAdminPutSourceRejectsBadKind(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake()}
+	if rec := do(t, s, http.MethodPut, "/api/v1/sources", "", `{"kind":"bogus","location":"x"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestAdminPutSettings(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPut, "/api/v1/settings", "", `{"approval.min_dl_mbps":5,"approval.max_latency_ms":600}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if string(f.setSettings["approval.min_dl_mbps"]) != "5" || string(f.setSettings["approval.max_latency_ms"]) != "600" {
+		t.Fatalf("settings not stored: %+v", f.setSettings)
+	}
+}
+
+func TestAdminPutSettingsRejectsEmpty(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake()}
+	if rec := do(t, s, http.MethodPut, "/api/v1/settings", "", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestAdminActionTriggers(t *testing.T) {
+	var fired string
+	s := &AdminServer{Store: newAdminFake(), Action: func(name string) error {
+		fired = name
+		return nil
+	}}
+	rec := do(t, s, http.MethodPost, "/api/v1/actions/publish", "", ``)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", rec.Code)
+	}
+	if fired != "publish" {
+		t.Fatalf("action not fired: %q", fired)
+	}
+}
+
+func TestAdminActionUnknown(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Action: func(string) error { return nil }}
+	if rec := do(t, s, http.MethodPost, "/api/v1/actions/nope", "", ``); rec.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestAdminActionUnavailable(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake()} // no Action wired
+	if rec := do(t, s, http.MethodPost, "/api/v1/actions/retest", "", ``); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d", rec.Code)
+	}
+}

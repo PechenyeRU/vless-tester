@@ -140,10 +140,12 @@ func run() error {
 		})
 	}
 
-	// Worker control plane: register/heartbeat/claim/results/nack over REST.
+	// HTTP surface: the untrusted worker control plane (WORKER_TOKEN) and the
+	// admin/read plane for the dashboard (ADMIN_TOKEN), two distinct trust
+	// domains served on one listener.
 	srv := &http.Server{
 		Addr:              apiAddr(),
-		Handler:           (&api.Server{Store: st, Token: os.Getenv("WORKER_TOKEN"), Logf: log.Printf}).Handler(),
+		Handler:           buildHTTP(st, sched),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
@@ -165,6 +167,47 @@ func run() error {
 		log.Printf("control plane shutdown: %v", err)
 	}
 	return nil
+}
+
+// buildHTTP composes the worker control plane and the admin/read plane onto one
+// mux. The two planes have separate bearer tokens, so a compromised worker
+// cannot reach the mutating admin endpoints. Admin actions map to scheduler
+// triggers, the single source of out-of-band runs.
+func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
+	worker := (&api.Server{Store: st, Token: os.Getenv("WORKER_TOKEN"), Logf: log.Printf}).Handler()
+	admin := (&api.AdminServer{
+		Store: st,
+		Token: os.Getenv("ADMIN_TOKEN"),
+		Logf:  log.Printf,
+		Action: func(name string) error {
+			switch name {
+			case "refresh-sources", "retest":
+				return sched.Trigger("dispatch")
+			case "publish":
+				return sched.Trigger("republish")
+			case "refresh-geoip":
+				return sched.Trigger("geoip-refresh")
+			default:
+				return fmt.Errorf("unknown action %q", name)
+			}
+		},
+	}).Handler()
+
+	mux := http.NewServeMux()
+	// Worker control plane (untrusted workers).
+	mux.Handle("/api/v1/workers/register", worker)
+	mux.Handle("/api/v1/workers/heartbeat", worker)
+	mux.Handle("/api/v1/jobs/", worker)
+	// Admin/read plane (dashboard). The exact /workers path is the fleet view;
+	// it does not collide with the worker plane's /workers/{register,heartbeat}.
+	mux.Handle("/api/v1/servers", admin)
+	mux.Handle("/api/v1/servers/", admin)
+	mux.Handle("/api/v1/workers", admin)
+	mux.Handle("/api/v1/stats", admin)
+	mux.Handle("/api/v1/sources", admin)
+	mux.Handle("/api/v1/settings", admin)
+	mux.Handle("/api/v1/actions/", admin)
+	return mux
 }
 
 func apiAddr() string {
