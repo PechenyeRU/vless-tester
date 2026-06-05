@@ -248,8 +248,8 @@ func (s *Store) RecordResult(ctx context.Context, workerID string, jobID int64, 
 	// so the admin UI can show them per worker (DESIGN: never in public output).
 	for _, c := range r.Checks {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO checks (run_id, server_id, name, passed, detail) VALUES ($1, $2, $3, $4, $5)`,
-			runID, serverID, c.Name, c.Passed, nullString(c.Detail),
+			`INSERT INTO checks (run_id, server_id, name, passed, metric, detail) VALUES ($1, $2, $3, $4, $5, $6)`,
+			runID, serverID, c.Name, c.Passed, c.Metric, nullString(c.Detail),
 		); err != nil {
 			return false, fmt.Errorf("record result: insert check: %w", err)
 		}

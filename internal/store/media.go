@@ -54,7 +54,7 @@ func (s *Store) MediaRequire(ctx context.Context) ([]string, error) {
 // server (most recent run wins), for the admin detail view.
 func (s *Store) ServerChecks(ctx context.Context, serverID int64) ([]model.CheckOutcome, error) {
 	const q = `
-		SELECT DISTINCT ON (c.name) c.name, c.passed, COALESCE(c.detail, '')
+		SELECT DISTINCT ON (c.name) c.name, c.passed, COALESCE(c.detail, ''), c.metric
 		FROM checks c
 		JOIN test_runs r ON r.id = c.run_id
 		WHERE c.server_id = $1
@@ -67,10 +67,23 @@ func (s *Store) ServerChecks(ctx context.Context, serverID int64) ([]model.Check
 	var out []model.CheckOutcome
 	for rows.Next() {
 		var c model.CheckOutcome
-		if err := rows.Scan(&c.Name, &c.Passed, &c.Detail); err != nil {
+		if err := rows.Scan(&c.Name, &c.Passed, &c.Detail, &c.Metric); err != nil {
 			return nil, fmt.Errorf("scan check: %w", err)
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// IPRiskEnabled reports whether workers should score the exit IP's reputation,
+// from the iprisk.enabled setting. Missing means disabled.
+func (s *Store) IPRiskEnabled(ctx context.Context) (bool, error) {
+	var enabled bool
+	if err := s.GetSetting(ctx, "iprisk.enabled", &enabled); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return enabled, nil
 }

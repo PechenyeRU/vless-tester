@@ -56,6 +56,63 @@ func TestMediaRequireSetting(t *testing.T) {
 	}
 }
 
+func TestIPRiskEnabledSetting(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	// Seed default is false (also reset by newTestStore).
+	if got, err := st.IPRiskEnabled(ctx); err != nil || got {
+		t.Fatalf("default: got %v err %v, want false", got, err)
+	}
+	if err := st.SetSetting(ctx, "iprisk.enabled", true); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.IPRiskEnabled(ctx); err != nil || !got {
+		t.Fatalf("enabled: got %v err %v, want true", got, err)
+	}
+}
+
+func TestRecordResultStoresCheckMetric(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseChecks); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseChecks, 1, nil)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim got %d err=%v", len(claimed), err)
+	}
+
+	lat := 30
+	score := 75.0
+	ok, err := st.RecordResult(ctx, "w1", claimed[0].JobID, model.TestRun{
+		Status:    model.StatusOK,
+		LatencyMs: &lat,
+		Checks: []model.CheckOutcome{
+			{Name: "ip_risk", Passed: false, Detail: "proxy,hosting (NL)", Metric: &score},
+		},
+	})
+	if err != nil || !ok {
+		t.Fatalf("record: ok=%v err=%v", ok, err)
+	}
+
+	// ServerChecks surfaces the metric so the UI/filters can read the risk score.
+	checks, err := st.ServerChecks(ctx, srvID)
+	if err != nil {
+		t.Fatalf("server checks: %v", err)
+	}
+	if len(checks) != 1 {
+		t.Fatalf("checks = %d, want 1", len(checks))
+	}
+	c := checks[0]
+	if c.Name != "ip_risk" || c.Metric == nil || *c.Metric != 75 || c.Detail != "proxy,hosting (NL)" {
+		t.Fatalf("ip_risk check = %+v (metric %v)", c, c.Metric)
+	}
+}
+
 func TestRecordResultStoresChecks(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

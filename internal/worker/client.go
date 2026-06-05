@@ -30,6 +30,8 @@ type Job struct {
 	// Require lists platforms the server must unlock to be worth a speed test;
 	// when set and unmet, the worker skips the expensive speed leg.
 	Require []string `json:"require,omitempty"`
+	// IPRisk asks the worker to score the exit IP's reputation (informational).
+	IPRisk bool `json:"ip_risk,omitempty"`
 }
 
 // Result is one measurement the worker reports back for a claimed job.

@@ -66,6 +66,7 @@ func newTestStore(t *testing.T) *store.Store {
 	_ = st.SetSetting(ctx, "protocols.enabled", []string{})
 	_ = st.SetSetting(ctx, "media.enabled", false)
 	_ = st.SetSetting(ctx, "media.require", []string{})
+	_ = st.SetSetting(ctx, "iprisk.enabled", false)
 	t.Cleanup(st.Close)
 	return st
 }

@@ -88,9 +88,26 @@ func sanitizeChecks(in []model.CheckOutcome) []model.CheckOutcome {
 			Name:   truncate(c.Name, maxName),
 			Passed: c.Passed,
 			Detail: truncate(c.Detail, maxDetail),
+			Metric: clampMetric(c.Metric),
 		})
 	}
 	return out
+}
+
+// clampMetric bounds an untrusted numeric check metric (e.g. a 0-100 risk score)
+// to [0, 100], dropping NaN/negative values to 0.
+func clampMetric(m *float64) *float64 {
+	if m == nil {
+		return nil
+	}
+	v := *m
+	if v != v || v < 0 { // NaN or negative
+		v = 0
+	}
+	if v > 100 {
+		v = 100
+	}
+	return &v
 }
 
 func truncate(s string, max int) string {

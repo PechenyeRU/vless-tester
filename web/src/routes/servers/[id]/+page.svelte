@@ -55,16 +55,39 @@
 	</div>
 
 	{#if detail.checks?.length}
-		<h2 class="text-lg font-semibold mb-2">Media unlock</h2>
-		<div class="card bg-base-100 shadow mb-6">
-			<div class="card-body flex-row flex-wrap gap-2">
-				{#each detail.checks as c}
-					<span class="badge gap-1 {c.passed ? 'badge-success' : 'badge-ghost'}" title={c.detail}>
-						{c.name}{#if c.detail} · {c.detail}{/if}
+		{@const ipRisk = detail.checks.find((c) => c.name === 'ip_risk')}
+		{@const media = detail.checks.filter((c) => c.name !== 'ip_risk')}
+		{#if ipRisk}
+			<h2 class="text-lg font-semibold mb-2">IP risk</h2>
+			<div class="card bg-base-100 shadow mb-6">
+				<div class="card-body flex-row items-center gap-3">
+					<span
+						class="badge badge-lg {(ipRisk.metric ?? 0) >= 50
+							? 'badge-error'
+							: (ipRisk.metric ?? 0) > 0
+								? 'badge-warning'
+								: 'badge-success'}"
+					>
+						{Math.round(ipRisk.metric ?? 0)}% risk
 					</span>
-				{/each}
+					{#if ipRisk.detail}
+						<span class="text-sm text-base-content/60">{ipRisk.detail}</span>
+					{/if}
+				</div>
 			</div>
-		</div>
+		{/if}
+		{#if media.length}
+			<h2 class="text-lg font-semibold mb-2">Media unlock</h2>
+			<div class="card bg-base-100 shadow mb-6">
+				<div class="card-body flex-row flex-wrap gap-2">
+					{#each media as c}
+						<span class="badge gap-1 {c.passed ? 'badge-success' : 'badge-ghost'}" title={c.detail}>
+							{c.name}{#if c.detail} · {c.detail}{/if}
+						</span>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	{/if}
 
 	<h2 class="text-lg font-semibold mb-2">History <span class="text-base-content/50 font-normal">({detail.history?.length || 0} runs)</span></h2>

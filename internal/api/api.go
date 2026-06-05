@@ -40,6 +40,8 @@ type Store interface {
 	// MediaRequire returns the platforms a server must unlock to be worth a speed
 	// test, or nil when there is no media gating.
 	MediaRequire(ctx context.Context) ([]string, error)
+	// IPRiskEnabled reports whether workers should score the exit IP's reputation.
+	IPRiskEnabled(ctx context.Context) (bool, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity and
@@ -247,6 +249,7 @@ type claimedJob struct {
 	Protocol string   `json:"protocol"`
 	Checks   []string `json:"checks,omitempty"`
 	Require  []string `json:"require,omitempty"`
+	IPRisk   bool     `json:"ip_risk,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -293,6 +296,11 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		}
 		platforms = unionStrings(platforms, require)
 	}
+	ipRisk, err := s.Store.IPRiskEnabled(r.Context())
+	if err != nil {
+		s.logf("api: claim %s: ip-risk setting: %v", workerID, err)
+		ipRisk = false // best-effort; never fail a claim over it
+	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
@@ -303,6 +311,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			Protocol: string(j.Protocol),
 			Checks:   platforms,
 			Require:  require,
+			IPRisk:   ipRisk,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

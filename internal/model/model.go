@@ -136,11 +136,14 @@ type TestRun struct {
 }
 
 // CheckOutcome is one extensible check result a worker reports for a server
-// (e.g. a streaming/AI unlock probe). Detail is a short region/tier/reason.
+// (e.g. a streaming/AI unlock probe, or an IP-risk score). Detail is a short
+// region/tier/reason; Metric is an optional numeric value (e.g. a 0-100 risk
+// score) for checks that quantify rather than just pass/fail.
 type CheckOutcome struct {
-	Name   string `json:"name"`
-	Passed bool   `json:"passed"`
-	Detail string `json:"detail,omitempty"`
+	Name   string   `json:"name"`
+	Passed bool     `json:"passed"`
+	Detail string   `json:"detail,omitempty"`
+	Metric *float64 `json:"metric,omitempty"`
 }
 
 // Check is an extensible approval check result (reachability, geo, dns-leak).

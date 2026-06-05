@@ -33,6 +33,7 @@ type fakeStore struct {
 	nacked         []int64
 	mediaPlatforms []string
 	mediaRequire   []string
+	ipRisk         bool
 }
 
 func newFake() *fakeStore {
@@ -82,6 +83,7 @@ func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64)
 }
 func (f *fakeStore) MediaChecks(_ context.Context) ([]string, error)  { return f.mediaPlatforms, nil }
 func (f *fakeStore) MediaRequire(_ context.Context) ([]string, error) { return f.mediaRequire, nil }
+func (f *fakeStore) IPRiskEnabled(_ context.Context) (bool, error)    { return f.ipRisk, nil }
 
 // handlerProvider is satisfied by both *Server (worker plane) and *AdminServer
 // (admin plane), so the do() helper drives either.
@@ -227,6 +229,25 @@ func TestClaim(t *testing.T) {
 	}
 	if f.claimArgs.worker != "w1" || f.claimArgs.phase != model.PhaseLatency || f.claimArgs.max != 5 {
 		t.Fatalf("claim args: %+v", f.claimArgs)
+	}
+}
+
+func TestClaimPushesIPRiskFlag(t *testing.T) {
+	f := newFake()
+	f.claimOut = []store.ClaimedJob{
+		{JobID: 7, ServerID: 3, RawURI: "vless://x", Phase: model.PhaseLatency, Protocol: model.ProtocolVLESS},
+	}
+	f.ipRisk = true
+	s := &Server{Store: f}
+
+	rec := do(t, s, http.MethodPost, "/api/v1/jobs/claim", "", `{"worker_id":"w1","phase":"latency","max":5}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var jobs []claimedJob
+	mustJSON(t, rec, &jobs)
+	if len(jobs) != 1 || !jobs[0].IPRisk {
+		t.Fatalf("expected ip_risk flag on claimed job, got %+v", jobs)
 	}
 }
 

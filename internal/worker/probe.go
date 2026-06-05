@@ -24,7 +24,9 @@ type ProbeRunner struct {
 	SpeedGate *checks.Semaphore
 	// MediaTimeout bounds each media-unlock probe. Zero uses the check default.
 	MediaTimeout time.Duration
-	NewClient    func(socksAddr string) (*http.Client, error)
+	// IPRiskURL overrides the IP-risk reputation provider; empty uses the default.
+	IPRiskURL string
+	NewClient func(socksAddr string) (*http.Client, error)
 }
 
 // Run measures one job. Latency always runs (it is the cheap gate); speed runs
@@ -65,6 +67,14 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 	// before the expensive speed test so a node that fails the media filter never
 	// reaches it (latency -> media -> speed).
 	res.Checks = p.runMedia(ctx, client, job.Checks)
+
+	// IP-risk scoring is informational (it never gates the speed test): it tags
+	// the exit IP's reputation so the coordinator/UI can flag suspect nodes.
+	if job.IPRisk {
+		if c, ok := p.runIPRisk(ctx, client); ok {
+			res.Checks = append(res.Checks, c)
+		}
+	}
 
 	// Media gate: if the coordinator requires certain unlocks and this node does
 	// not provide them, skip the speed test to save the bandwidth-heavy leg.
@@ -132,6 +142,24 @@ func (p ProbeRunner) runMedia(ctx context.Context, client *http.Client, platform
 		out = append(out, model.CheckOutcome{Name: m.Platform, Passed: r.Passed, Detail: detail})
 	}
 	return out
+}
+
+// runIPRisk scores the exit IP's reputation through the proxy. It returns a
+// CheckOutcome (name "ip_risk", passed = low risk, metric = 0-100 score) only
+// when the lookup succeeded; a failed lookup is dropped so it never records a
+// misleading clean score.
+func (p ProbeRunner) runIPRisk(ctx context.Context, client *http.Client) (model.CheckOutcome, bool) {
+	rr, err := checks.IPRiskCheck{URL: p.IPRiskURL, Timeout: p.MediaTimeout}.Run(ctx, client)
+	if err != nil || !rr.OK {
+		return model.CheckOutcome{}, false
+	}
+	score := rr.Score
+	return model.CheckOutcome{
+		Name:   "ip_risk",
+		Passed: !rr.Risky,
+		Detail: rr.Detail,
+		Metric: &score,
+	}, true
 }
 
 func fail(err error) Result {

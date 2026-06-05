@@ -29,6 +29,7 @@
 	let mediaEnabled = $state(false);
 	let mediaTested = $state(new Set());
 	let mediaRequire = $state(new Set());
+	let ipRiskEnabled = $state(false);
 
 	async function load() {
 		error = '';
@@ -48,6 +49,7 @@
 			mediaEnabled = !!(sett && sett['media.enabled']);
 			mediaTested = new Set((sett && sett['media.platforms']) || []);
 			mediaRequire = new Set((sett && sett['media.require']) || []);
+			ipRiskEnabled = !!(sett && sett['iprisk.enabled']);
 		} catch (e) {
 			error = e.message;
 		}
@@ -59,7 +61,8 @@
 			await api.putSettings({
 				'media.enabled': mediaEnabled,
 				'media.platforms': MEDIA.filter((p) => mediaTested.has(p)),
-				'media.require': MEDIA.filter((p) => mediaRequire.has(p))
+				'media.require': MEDIA.filter((p) => mediaRequire.has(p)),
+				'iprisk.enabled': ipRiskEnabled
 			});
 			flash('Media settings saved');
 		} catch (e) {
@@ -412,6 +415,14 @@
 				{/each}
 			</div>
 		</div>
+
+		<div class="divider my-2"></div>
+
+		<label class="label cursor-pointer justify-start gap-2 w-fit">
+			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={ipRiskEnabled} />
+			<span class="label-text">Enable IP-risk scoring</span>
+			<span class="text-base-content/50 text-sm">(tags each node's exit IP with a 0-100 risk score)</span>
+		</label>
 
 		<div class="mt-3">
 			<button class="btn btn-primary btn-sm" onclick={saveMedia}>Save media settings</button>
