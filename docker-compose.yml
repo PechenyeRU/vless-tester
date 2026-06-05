@@ -1,4 +1,6 @@
-# Local development stack. Production scheduling/storage live in Kubernetes (see deploy/).
+# Local stack. `docker compose up -d` brings only Postgres (for tests/dev).
+# `make stack` (compose --profile stack) additionally builds and runs the
+# coordinator and worker images for an end-to-end local run.
 services:
   postgres:
     image: postgres:17-alpine
@@ -15,6 +17,48 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  coordinator:
+    profiles: ["stack"]
+    build:
+      context: .
+      dockerfile: deploy/docker/coordinator.Dockerfile
+    environment:
+      DATABASE_URL: postgres://vless:vless@postgres:5432/vless_tester?sslmode=disable
+      API_ADDR: ":8080"
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+      # Dashboard login (humans sign in with these; defaults admin / admin).
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # GeoIP is optional: it downloads only when MaxMind credentials are set.
+      # /tmp is writable by the nonroot user in the distroless image.
+      GEOIP_DB: /tmp/geoip/GeoLite2-Country.mmdb
+      MAXMIND_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      GITHUB_PUBLISH_REPO: ${GITHUB_PUBLISH_REPO:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    profiles: ["stack"]
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+    environment:
+      COORDINATOR_URL: http://coordinator:8080
+      # Each worker authenticates with its own token. Create one in the admin
+      # panel (Workers section), then (re)start the worker with it:
+      #   WORKER_TOKEN=wt_... docker compose --profile stack up -d worker
+      # Without a valid token the worker fails to register and exits.
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+    depends_on:
+      - coordinator
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
 
 volumes:
   pgdata:

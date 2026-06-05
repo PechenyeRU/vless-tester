@@ -18,8 +18,8 @@ var ErrBinaryNotFound = errors.New("core: sing-box binary not found")
 
 // Options tunes how a sing-box instance is launched.
 type Options struct {
-	// BinaryPath overrides binary discovery. When empty, SINGBOX_BIN and then
-	// the PATH are consulted. Phase 3 replaces this with an embedded binary.
+	// BinaryPath overrides binary discovery. When empty, SINGBOX_BIN, an
+	// embedded copy (single-file builds), and then the PATH are consulted.
 	BinaryPath string
 	// StartTimeout bounds how long Start waits for the SOCKS port to accept.
 	StartTimeout time.Duration
@@ -120,16 +120,20 @@ func waitReady(ctx context.Context, inst *Instance, timeout time.Duration) error
 }
 
 // ResolveBinary locates the sing-box executable: explicit path, then SINGBOX_BIN,
-// then the PATH. A relative path (e.g. SINGBOX_BIN=./bin/sing-box) is anchored by
-// searching upward from the working directory, so it resolves the same whether a
-// caller runs from the repo root or from a subdirectory (notably `go test ./...`,
-// which runs each package in its own directory).
+// then the binary embedded at build time (single-file worker), then the PATH. A
+// relative path (e.g. SINGBOX_BIN=./bin/sing-box) is anchored by searching upward
+// from the working directory, so it resolves the same whether a caller runs from
+// the repo root or from a subdirectory (notably `go test ./...`, which runs each
+// package in its own directory).
 func ResolveBinary(explicit string) (string, error) {
 	if explicit != "" {
 		return anchorRelative(explicit), nil
 	}
 	if env := os.Getenv("SINGBOX_BIN"); env != "" {
 		return anchorRelative(env), nil
+	}
+	if embedded.present() {
+		return extractEmbedded(embedded.data, embedded.sum)
 	}
 	if path, err := exec.LookPath("sing-box"); err == nil {
 		return path, nil

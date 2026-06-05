@@ -14,6 +14,9 @@ PLAN.md
 *.out
 coverage.*
 
+# Embedded sing-box fetched at build time for single-file/Docker worker
+/internal/core/embedded/
+
 # Go
 vendor/
 

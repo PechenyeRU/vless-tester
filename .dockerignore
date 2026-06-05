@@ -1,0 +1,18 @@
+# Keep the build context small and free of secrets/working notes. DESIGN.md and
+# PLAN.md are Italian working notes (OSINT requirement) and must never enter an
+# image.
+.git
+.github
+bin/
+dist/
+*.md
+.env
+*.env
+!.env.example
+geoip/
+*.mmdb
+internal/core/embedded/
+web/node_modules/
+web/.svelte-kit/
+web/build/
+**/*_test.go
