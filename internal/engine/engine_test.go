@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"gopkg.in/yaml.v3"
@@ -235,6 +236,54 @@ func TestEngineNotifiesOnPublish(t *testing.T) {
 	// The summary tallies per country (FR from the fake resolver).
 	if sum.ByCountry["FR"] != 1 {
 		t.Fatalf("by-country = %v, want FR:1", sum.ByCountry)
+	}
+}
+
+// fakeLive is a settings-backed LiveSettings stand-in for testing live re-gating.
+type fakeLive struct {
+	ap            engine.Approval
+	notifyEnabled bool
+	notifyURLs    []string
+}
+
+func (f *fakeLive) Approval(context.Context) engine.Approval    { return f.ap }
+func (f *fakeLive) Fanout(context.Context) int                  { return 1 }
+func (f *fakeLive) LeaseTTL(context.Context) time.Duration      { return 2 * time.Minute }
+func (f *fakeLive) MaxAttempts(context.Context) int             { return 3 }
+func (f *fakeLive) NotifyURLs(context.Context) (bool, []string) { return f.notifyEnabled, f.notifyURLs }
+
+func TestEngineLiveApprovalGate(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+
+	eng := newEngine(st, srv)
+	servers, _ := ingest.ParseList("vless://uuid@8.8.8.8:443?type=ws#a")
+	if _, err := eng.RunOnce(context.Background(), servers); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	// From here on no proxy test may run: re-gating reads the live settings only.
+	eng.Prober = failProber{}
+
+	// A strict live gate (impossibly high min download) approves nothing.
+	eng.Live = &fakeLive{ap: engine.Approval{MaxLatencyMs: 5000, MinDlMBps: 1e9, AllowPartial: true}}
+	sum, err := eng.PublishFromHistory(context.Background())
+	if err != nil {
+		t.Fatalf("publish strict: %v", err)
+	}
+	if sum.Approved != 0 {
+		t.Fatalf("strict live gate approved %d, want 0", sum.Approved)
+	}
+
+	// Relaxing the live gate re-approves without any retest.
+	eng.Live = &fakeLive{ap: engine.Approval{MaxLatencyMs: 5000, MinDlMBps: 0, AllowPartial: true}}
+	sum, err = eng.PublishFromHistory(context.Background())
+	if err != nil {
+		t.Fatalf("publish relaxed: %v", err)
+	}
+	if sum.Approved != 1 {
+		t.Fatalf("relaxed live gate approved %d, want 1", sum.Approved)
 	}
 }
 

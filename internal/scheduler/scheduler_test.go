@@ -117,6 +117,37 @@ func TestPeriodicExecution(t *testing.T) {
 	}
 }
 
+func TestDynamicInterval(t *testing.T) {
+	var count atomic.Int32
+	done := make(chan struct{})
+	s := scheduler.New(nil)
+	// IntervalFn is re-read each cycle; a short dynamic interval ticks repeatedly.
+	s.Add(scheduler.Job{
+		Name:       "dyn",
+		IntervalFn: func() time.Duration { return 10 * time.Millisecond },
+		Run: func(context.Context) error {
+			if count.Add(1) == 3 {
+				select {
+				case <-done:
+				default:
+					close(done)
+				}
+			}
+			return nil
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.Start(ctx)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected >=3 dynamic-interval executions, got %d", count.Load())
+	}
+}
+
 func TestErrorCallback(t *testing.T) {
 	got := make(chan string, 1)
 	s := scheduler.New(func(name string, _ error) {

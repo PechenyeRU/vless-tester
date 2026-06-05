@@ -155,7 +155,7 @@
 			.filter(Boolean);
 		try {
 			await api.putSettings({ 'notify.enabled': notifyEnabled, 'notify.urls': urls });
-			flash('Notifications saved (restart to apply to the cycle notifier)');
+			flash('Notifications saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -592,7 +592,7 @@
 		<h2 class="card-title text-lg">
 			Notifications
 			<Help
-				tip="Send a per-country summary after each published cycle via shoutrrr. One service URL per line: telegram://token@telegram?chats=@channel, discord://token@id, slack://…, or generic://host/path for a webhook. The cycle notifier reads these at startup — use 'Send test' to validate them live."
+				tip="Send a per-country summary after each published cycle via shoutrrr. One service URL per line: telegram://token@telegram?chats=@channel, discord://token@id, slack://…, or generic://host/path for a webhook. Applied on the next cycle; use 'Send test' to validate now."
 			/>
 		</h2>
 		<label class="label cursor-pointer justify-start gap-2 w-fit">

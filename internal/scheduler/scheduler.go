@@ -13,10 +13,22 @@ import (
 
 // Job is a named periodic task.
 type Job struct {
-	Name       string
+	Name string
+	// Interval is the fixed run period. IntervalFn, when set, takes precedence and
+	// is re-read after every run, so a settings-driven interval applies live (on
+	// the next cycle) without restarting the scheduler.
 	Interval   time.Duration
+	IntervalFn func() time.Duration
 	Run        func(ctx context.Context) error
 	RunOnStart bool // execute once immediately when the scheduler starts
+}
+
+// interval returns the job's current run period (dynamic when IntervalFn is set).
+func (j *Job) interval() time.Duration {
+	if j.IntervalFn != nil {
+		return j.IntervalFn()
+	}
+	return j.Interval
 }
 
 // Scheduler runs jobs on their intervals and on manual triggers.
@@ -76,19 +88,27 @@ func (s *Scheduler) runLoop(ctx context.Context, job *Job, trigger <-chan struct
 	if job.RunOnStart {
 		s.exec(ctx, job)
 	}
-	var tick <-chan time.Time
-	if job.Interval > 0 {
-		ticker := time.NewTicker(job.Interval)
-		defer ticker.Stop()
-		tick = ticker.C
-	}
+	// Re-arm a timer each iteration reading the current interval, so a dynamic
+	// IntervalFn (settings-backed) takes effect without restarting the loop.
 	for {
+		var tick <-chan time.Time
+		var timer *time.Timer
+		if d := job.interval(); d > 0 {
+			timer = time.NewTimer(d)
+			tick = timer.C
+		}
 		select {
 		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
 			return
 		case <-tick:
 			s.exec(ctx, job)
 		case <-trigger:
+			if timer != nil && !timer.Stop() {
+				<-timer.C // drain the fired timer before re-arming
+			}
 			s.exec(ctx, job)
 		}
 	}

@@ -79,6 +79,37 @@ type Engine struct {
 	LeaseTTL    time.Duration // a claim older than this is considered dead
 	MaxAttempts int           // 0 = unlimited retries before a job is failed
 	AliveWindow time.Duration // a worker seen within this counts as alive
+
+	// Live, when set, supplies the dynamic knobs above (approval gate, fan-out,
+	// lease/attempts, notify) from settings at use-time, so admin edits take
+	// effect without a coordinator restart. nil falls back to the static fields
+	// (cmd/tester's env-configured single-node run).
+	Live LiveSettings
+}
+
+// LiveSettings resolves the dynamic engine knobs from settings at use-time.
+type LiveSettings interface {
+	Approval(ctx context.Context) Approval
+	Fanout(ctx context.Context) int
+	LeaseTTL(ctx context.Context) time.Duration
+	MaxAttempts(ctx context.Context) int
+	NotifyURLs(ctx context.Context) (enabled bool, urls []string)
+}
+
+// approval returns the gate, live when configured.
+func (e *Engine) approval(ctx context.Context) Approval {
+	if e.Live != nil {
+		return e.Live.Approval(ctx)
+	}
+	return e.Approval
+}
+
+// maxAttempts returns the requeue cap, live when configured.
+func (e *Engine) maxAttempts(ctx context.Context) int {
+	if e.Live != nil {
+		return e.Live.MaxAttempts(ctx)
+	}
+	return e.MaxAttempts
 }
 
 // ErrCycleInProgress is returned by DispatchCycle when a batch is still draining.
@@ -102,11 +133,29 @@ func (e *Engine) logf(format string, args ...any) {
 // notifyCycle sends the best-effort end-of-cycle notification. Failures are
 // logged, never propagated, so a flaky notifier never blocks a publish.
 func (e *Engine) notifyCycle(ctx context.Context, sum Summary) {
-	if e.Notifier == nil {
+	n := e.Notifier
+	if e.Live != nil {
+		// Live config: build a sender from the current settings each cycle, so
+		// notification URLs edited in the UI apply without a restart.
+		enabled, urls := e.Live.NotifyURLs(ctx)
+		if !enabled {
+			return
+		}
+		sn, err := notify.NewShoutrrr(urls)
+		if err != nil {
+			e.logf("engine: notify: %v", err)
+			return
+		}
+		if sn == nil {
+			return // no URLs configured
+		}
+		n = sn
+	}
+	if n == nil {
 		return
 	}
 	msg := notify.CycleMessage(e.Brand, sum.Approved, sum.ByCountry)
-	if err := e.Notifier.Notify(ctx, msg); err != nil {
+	if err := n.Notify(ctx, msg); err != nil {
 		e.logf("engine: notify: %v", err)
 	}
 }
@@ -233,7 +282,7 @@ type ReconcileResult struct {
 func (e *Engine) Reconcile(ctx context.Context) (ReconcileResult, error) {
 	var res ReconcileResult
 
-	requeued, failed, err := e.Store.RequeueExpired(ctx, e.leaseTTL(), e.MaxAttempts)
+	requeued, failed, err := e.Store.RequeueExpired(ctx, e.leaseTTL(ctx), e.maxAttempts(ctx))
 	if err != nil {
 		return res, fmt.Errorf("engine: requeue: %w", err)
 	}
@@ -284,7 +333,8 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 		filter = &id
 	}
 
-	approved, err := e.Store.ApprovedServers(ctx, filter, e.Approval.MinDlMBps, e.Approval.MaxLatencyMs, e.Approval.required())
+	ap := e.approval(ctx)
+	approved, err := e.Store.ApprovedServers(ctx, filter, ap.MinDlMBps, ap.MaxLatencyMs, ap.required())
 	if err != nil {
 		return sum, fmt.Errorf("engine: approved servers: %w", err)
 	}
@@ -459,6 +509,9 @@ func (e *Engine) country(ctx context.Context, host string) string {
 // can always drain. With no workers yet it stays at 1 (the first worker drains).
 func (e *Engine) fanout(ctx context.Context) int {
 	n := e.Fanout
+	if e.Live != nil {
+		n = e.Live.Fanout(ctx)
+	}
 	if n < 1 {
 		n = 1
 	}
@@ -472,11 +525,15 @@ func (e *Engine) fanout(ctx context.Context) int {
 	return n
 }
 
-func (e *Engine) leaseTTL() time.Duration {
-	if e.LeaseTTL <= 0 {
+func (e *Engine) leaseTTL(ctx context.Context) time.Duration {
+	d := e.LeaseTTL
+	if e.Live != nil {
+		d = e.Live.LeaseTTL(ctx)
+	}
+	if d <= 0 {
 		return 2 * time.Minute
 	}
-	return e.LeaseTTL
+	return d
 }
 
 func (e *Engine) aliveWindow() time.Duration {

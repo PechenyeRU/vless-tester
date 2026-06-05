@@ -20,7 +20,6 @@ import (
 	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
-	"github.com/whitedns/vless-tester/internal/notify"
 	"github.com/whitedns/vless-tester/internal/output"
 	"github.com/whitedns/vless-tester/internal/scheduler"
 	"github.com/whitedns/vless-tester/internal/store"
@@ -65,7 +64,7 @@ func run() error {
 	// a no-op while a previous cycle is still draining.
 	sched.Add(scheduler.Job{
 		Name:       "dispatch",
-		Interval:   intervalSetting(ctx, st, "dispatch.interval", 12*time.Hour),
+		IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "dispatch.interval", 12*time.Hour) },
 		RunOnStart: true,
 		Run: func(ctx context.Context) error {
 			servers, err := loadServers(ctx, st)
@@ -88,7 +87,7 @@ func run() error {
 	// Reconcile: requeue dead-worker jobs and publish once the batch drains.
 	sched.Add(scheduler.Job{
 		Name:       "reconcile",
-		Interval:   intervalSetting(ctx, st, "reconcile.interval", 10*time.Second),
+		IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "reconcile.interval", 10*time.Second) },
 		RunOnStart: true,
 		Run: func(ctx context.Context) error {
 			res, err := eng.Reconcile(ctx)
@@ -140,8 +139,8 @@ func run() error {
 	if acc, key := os.Getenv("MAXMIND_ACCOUNT_ID"), os.Getenv("MAXMIND_LICENSE_KEY"); acc != "" && key != "" {
 		dl := &naming.MaxMindDownloader{AccountID: acc, LicenseKey: key}
 		sched.Add(scheduler.Job{
-			Name:     "geoip-refresh",
-			Interval: intervalSetting(ctx, st, "geoip.refresh", 336*time.Hour),
+			Name:       "geoip-refresh",
+			IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "geoip.refresh", 336*time.Hour) },
 			Run: func(ctx context.Context) error {
 				return dl.EnsureDatabase(ctx, geoipPath(), 14*24*time.Hour)
 			},
@@ -258,39 +257,52 @@ func buildEngine(ctx context.Context, st *store.Store) *engine.Engine {
 		publisher = &output.GitPublisher{RepoURL: repo, Branch: "main"}
 	}
 
-	// End-of-cycle notifier, built from settings at startup (edit + restart to
-	// change; the admin "Send test" button validates URLs live without restart).
-	var notifier notify.Notifier
-	if enabled, urls, err := st.NotifySettings(ctx); err != nil {
-		log.Printf("notify: read settings: %v", err)
-	} else if enabled {
-		if n, err := notify.NewShoutrrr(urls); err != nil {
-			log.Printf("notify: %v", err)
-		} else if n != nil {
-			notifier = n
-		}
-	}
-
-	required := intSetting(ctx, st, "approval.required_workers", 1)
+	// The approval gate, fan-out, lease/attempts and notifications are read live
+	// from settings (via liveSettings), so admin edits apply on the next cycle
+	// without a coordinator restart.
 	return &engine.Engine{
-		Store:     st,
-		Resolver:  resolver,
-		Seq:       naming.Allocator{Backend: st.NewSeqBackend()},
-		Publisher: publisher,
-		Notifier:  notifier,
-		Logf:      log.Printf,
-		Brand:     "@WhiteDNS",
-		Approval: engine.Approval{
-			MaxLatencyMs:    intSetting(ctx, st, "approval.max_latency_ms", 800),
-			MinDlMBps:       floatSetting(ctx, st, "approval.min_dl_mbps", 1),
-			RequiredWorkers: required,
-			AllowPartial:    boolSetting(ctx, st, "approval.allow_partial", true),
-		},
-		Fanout:      required,
-		LeaseTTL:    intervalSetting(ctx, st, "jobs.lease_ttl", 2*time.Minute),
-		MaxAttempts: intSetting(ctx, st, "jobs.max_attempts", 3),
+		Store:       st,
+		Resolver:    resolver,
+		Seq:         naming.Allocator{Backend: st.NewSeqBackend()},
+		Publisher:   publisher,
+		Logf:        log.Printf,
+		Brand:       "@WhiteDNS",
 		AliveWindow: 90 * time.Second,
+		Live:        liveSettings{st: st},
 	}
+}
+
+// liveSettings reads the dynamic engine knobs from settings at use-time so the
+// admin UI takes effect without restarting the coordinator.
+type liveSettings struct{ st *store.Store }
+
+func (l liveSettings) Approval(ctx context.Context) engine.Approval {
+	return engine.Approval{
+		MaxLatencyMs:    intSetting(ctx, l.st, "approval.max_latency_ms", 800),
+		MinDlMBps:       floatSetting(ctx, l.st, "approval.min_dl_mbps", 1),
+		RequiredWorkers: intSetting(ctx, l.st, "approval.required_workers", 1),
+		AllowPartial:    boolSetting(ctx, l.st, "approval.allow_partial", true),
+	}
+}
+
+func (l liveSettings) Fanout(ctx context.Context) int {
+	return intSetting(ctx, l.st, "approval.required_workers", 1)
+}
+
+func (l liveSettings) LeaseTTL(ctx context.Context) time.Duration {
+	return intervalSetting(ctx, l.st, "jobs.lease_ttl", 2*time.Minute)
+}
+
+func (l liveSettings) MaxAttempts(ctx context.Context) int {
+	return intSetting(ctx, l.st, "jobs.max_attempts", 3)
+}
+
+func (l liveSettings) NotifyURLs(ctx context.Context) (bool, []string) {
+	enabled, urls, err := l.st.NotifySettings(ctx)
+	if err != nil {
+		return false, nil
+	}
+	return enabled, urls
 }
 
 // loadServers fetches and parses all enabled ingest sources.
