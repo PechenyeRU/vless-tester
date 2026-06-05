@@ -25,6 +25,7 @@ type AdminStore interface {
 	ListServers(ctx context.Context, f store.ServerFilter) ([]store.ServerSummary, error)
 	GetServer(ctx context.Context, id int64) (model.Server, error)
 	ServerHistory(ctx context.Context, serverID int64, limit int) ([]store.RunRecord, error)
+	ServerChecks(ctx context.Context, serverID int64) ([]model.CheckOutcome, error)
 	ListWorkers(ctx context.Context) ([]model.Worker, error)
 	Stats(ctx context.Context) (store.Stats, error)
 	ListAllSources(ctx context.Context) ([]model.Source, error)
@@ -238,8 +239,9 @@ func (s *AdminServer) handleServers(w http.ResponseWriter, r *http.Request) {
 // --- GET /servers/{id} ---
 
 type serverDetailResp struct {
-	Server  serverView        `json:"server"`
-	History []store.RunRecord `json:"history"`
+	Server  serverView           `json:"server"`
+	History []store.RunRecord    `json:"history"`
+	Checks  []model.CheckOutcome `json:"checks"`
 }
 
 // serverView exposes a server's public + diagnostic fields for the admin detail
@@ -271,12 +273,19 @@ func (s *AdminServer) handleServerDetail(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "history failed")
 		return
 	}
+	checks, err := s.Store.ServerChecks(r.Context(), id)
+	if err != nil {
+		s.logf("api: server checks %d: %v", id, err)
+		writeErr(w, http.StatusInternalServerError, "checks failed")
+		return
+	}
 	writeJSON(w, http.StatusOK, serverDetailResp{
 		Server: serverView{
 			ID: srv.ID, Protocol: srv.Protocol, Host: srv.Host, Port: srv.Port,
 			Country: srv.Country, SeqName: srv.SeqName, RawURI: srv.RawURI,
 		},
 		History: history,
+		Checks:  checks,
 	})
 }
 

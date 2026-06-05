@@ -45,6 +45,7 @@ func (b Bounds) sanitize(item resultItem) model.TestRun {
 		DlMbps:    item.DlMbps,
 		UlMbps:    item.UlMbps,
 		Error:     item.Error,
+		Checks:    sanitizeChecks(item.Checks),
 	}
 
 	if run.LatencyMs != nil && (*run.LatencyMs < 0 || *run.LatencyMs > b.maxLatency()) {
@@ -61,6 +62,42 @@ func (b Bounds) sanitize(item resultItem) model.TestRun {
 		}
 	}
 	return run
+}
+
+// sanitizeChecks bounds the untrusted per-platform outcomes: it caps the count
+// and trims overlong names/details so a malicious worker cannot bloat the
+// checks table.
+func sanitizeChecks(in []model.CheckOutcome) []model.CheckOutcome {
+	const (
+		maxChecks = 32
+		maxName   = 32
+		maxDetail = 64
+	)
+	if len(in) == 0 {
+		return nil
+	}
+	if len(in) > maxChecks {
+		in = in[:maxChecks]
+	}
+	out := make([]model.CheckOutcome, 0, len(in))
+	for _, c := range in {
+		if c.Name == "" {
+			continue
+		}
+		out = append(out, model.CheckOutcome{
+			Name:   truncate(c.Name, maxName),
+			Passed: c.Passed,
+			Detail: truncate(c.Detail, maxDetail),
+		})
+	}
+	return out
+}
+
+func truncate(s string, max int) string {
+	if len(s) > max {
+		return s[:max]
+	}
+	return s
 }
 
 // clampMBps drops a throughput value that is negative or above max.

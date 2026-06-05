@@ -24,16 +24,20 @@ type Job struct {
 	RawURI   string `json:"raw_uri"`
 	Phase    string `json:"phase"`
 	Protocol string `json:"protocol"`
+	// Checks lists the media-unlock platforms the coordinator wants probed for
+	// this job (empty when media checks are disabled).
+	Checks []string `json:"checks,omitempty"`
 }
 
 // Result is one measurement the worker reports back for a claimed job.
 type Result struct {
-	JobID     int64    `json:"job_id"`
-	Status    string   `json:"status"`
-	LatencyMs *int     `json:"latency_ms,omitempty"`
-	DlMbps    *float64 `json:"dl_mbps,omitempty"`
-	UlMbps    *float64 `json:"ul_mbps,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	JobID     int64                `json:"job_id"`
+	Status    string               `json:"status"`
+	LatencyMs *int                 `json:"latency_ms,omitempty"`
+	DlMbps    *float64             `json:"dl_mbps,omitempty"`
+	UlMbps    *float64             `json:"ul_mbps,omitempty"`
+	Error     string               `json:"error,omitempty"`
+	Checks    []model.CheckOutcome `json:"checks,omitempty"`
 }
 
 // Client is the HTTP control-plane client. HTTP may be a plain client or one

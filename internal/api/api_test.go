@@ -27,9 +27,10 @@ type fakeStore struct {
 	}
 	// owned holds job ids this worker legitimately claimed; RecordResult/NackJobs
 	// only act on those, mirroring the real ownership check.
-	owned    map[int64]bool
-	recorded []model.TestRun
-	nacked   []int64
+	owned          map[int64]bool
+	recorded       []model.TestRun
+	nacked         []int64
+	mediaPlatforms []string
 }
 
 func newFake() *fakeStore {
@@ -76,6 +77,7 @@ func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64)
 	}
 	return n, nil
 }
+func (f *fakeStore) MediaChecks(_ context.Context) ([]string, error) { return f.mediaPlatforms, nil }
 
 // handlerProvider is satisfied by both *Server (worker plane) and *AdminServer
 // (admin plane), so the do() helper drives either.

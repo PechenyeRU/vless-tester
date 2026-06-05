@@ -54,6 +54,19 @@
 		</div>
 	</div>
 
+	{#if detail.checks?.length}
+		<h2 class="text-lg font-semibold mb-2">Media unlock</h2>
+		<div class="card bg-base-100 shadow mb-6">
+			<div class="card-body flex-row flex-wrap gap-2">
+				{#each detail.checks as c}
+					<span class="badge gap-1 {c.passed ? 'badge-success' : 'badge-ghost'}" title={c.detail}>
+						{c.name}{#if c.detail} · {c.detail}{/if}
+					</span>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
 	<h2 class="text-lg font-semibold mb-2">History <span class="text-base-content/50 font-normal">({detail.history?.length || 0} runs)</span></h2>
 	<div class="card bg-base-100 shadow">
 		<div class="card-body p-0">

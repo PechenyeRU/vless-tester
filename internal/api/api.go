@@ -34,6 +34,9 @@ type Store interface {
 	ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int) ([]store.ClaimedJob, error)
 	RecordResult(ctx context.Context, workerID string, jobID int64, r model.TestRun) (bool, error)
 	NackJobs(ctx context.Context, workerID string, jobIDs []int64) (int64, error)
+	// MediaChecks returns the media-unlock platforms to probe, or nil when media
+	// checks are disabled.
+	MediaChecks(ctx context.Context) ([]string, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity. The
@@ -207,11 +210,12 @@ type claimReq struct {
 }
 
 type claimedJob struct {
-	JobID    int64  `json:"job_id"`
-	ServerID int64  `json:"server_id"`
-	RawURI   string `json:"raw_uri"`
-	Phase    string `json:"phase"`
-	Protocol string `json:"protocol"`
+	JobID    int64    `json:"job_id"`
+	ServerID int64    `json:"server_id"`
+	RawURI   string   `json:"raw_uri"`
+	Phase    string   `json:"phase"`
+	Protocol string   `json:"protocol"`
+	Checks   []string `json:"checks,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +245,13 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "claim failed")
 		return
 	}
+	// The platform list is policy the coordinator owns; it rides along with every
+	// claimed job so the worker knows what to probe.
+	platforms, err := s.Store.MediaChecks(r.Context())
+	if err != nil {
+		s.logf("api: claim %s: media settings: %v", workerID, err)
+		platforms = nil // media checks are best-effort; never fail a claim over them
+	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
@@ -249,6 +260,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			RawURI:   j.RawURI,
 			Phase:    string(j.Phase),
 			Protocol: string(j.Protocol),
+			Checks:   platforms,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -257,12 +269,13 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 // --- jobs/results ---
 
 type resultItem struct {
-	JobID     int64    `json:"job_id"`
-	Status    string   `json:"status"`
-	LatencyMs *int     `json:"latency_ms,omitempty"`
-	DlMbps    *float64 `json:"dl_mbps,omitempty"`
-	UlMbps    *float64 `json:"ul_mbps,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	JobID     int64                `json:"job_id"`
+	Status    string               `json:"status"`
+	LatencyMs *int                 `json:"latency_ms,omitempty"`
+	DlMbps    *float64             `json:"dl_mbps,omitempty"`
+	UlMbps    *float64             `json:"ul_mbps,omitempty"`
+	Error     string               `json:"error,omitempty"`
+	Checks    []model.CheckOutcome `json:"checks,omitempty"`
 }
 
 type resultsReq struct {

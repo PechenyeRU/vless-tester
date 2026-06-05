@@ -226,12 +226,24 @@ func (s *Store) RecordResult(ctx context.Context, workerID string, jobID int64, 
 		return false, fmt.Errorf("record result: lookup job %d: %w", jobID, err)
 	}
 
-	if _, err := tx.Exec(ctx,
+	var runID int64
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO test_runs (server_id, worker_id, batch_id, phase, latency_ms, dl_mbps, ul_mbps, status, error)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		serverID, workerID, batchID, phase, r.LatencyMs, r.DlMbps, r.UlMbps, string(r.Status), nullString(r.Error),
-	); err != nil {
+	).Scan(&runID); err != nil {
 		return false, fmt.Errorf("record result: insert run: %w", err)
+	}
+
+	// Extensible per-platform outcomes (media unlock, etc.) are linked to the run
+	// so the admin UI can show them per worker (DESIGN: never in public output).
+	for _, c := range r.Checks {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO checks (run_id, server_id, name, passed, detail) VALUES ($1, $2, $3, $4, $5)`,
+			runID, serverID, c.Name, c.Passed, nullString(c.Detail),
+		); err != nil {
+			return false, fmt.Errorf("record result: insert check: %w", err)
+		}
 	}
 
 	state := model.JobDone

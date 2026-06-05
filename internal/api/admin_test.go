@@ -18,15 +18,16 @@ var errNotFound = errors.New("not found")
 // fakeAdminStore is an in-memory AdminStore so the admin handlers run with no
 // database. Each field scripts one method's output; calls are recorded.
 type fakeAdminStore struct {
-	servers     []store.ServerSummary
-	listFilter  store.ServerFilter
-	server      model.Server
-	getErr      error
-	history     []store.RunRecord
-	workers     []model.Worker
-	stats       store.Stats
-	sources     []model.Source
-	settings    map[string]json.RawMessage
+	servers      []store.ServerSummary
+	listFilter   store.ServerFilter
+	server       model.Server
+	getErr       error
+	history      []store.RunRecord
+	serverChecks []model.CheckOutcome
+	workers      []model.Worker
+	stats        store.Stats
+	sources      []model.Source
+	settings     map[string]json.RawMessage
 	upserted     []model.Source
 	toggled      map[int64]bool
 	setSettings  map[string]json.RawMessage
@@ -56,6 +57,9 @@ func (f *fakeAdminStore) GetServer(_ context.Context, id int64) (model.Server, e
 }
 func (f *fakeAdminStore) ServerHistory(_ context.Context, _ int64, _ int) ([]store.RunRecord, error) {
 	return f.history, nil
+}
+func (f *fakeAdminStore) ServerChecks(_ context.Context, _ int64) ([]model.CheckOutcome, error) {
+	return f.serverChecks, nil
 }
 func (f *fakeAdminStore) ListWorkers(_ context.Context) ([]model.Worker, error) {
 	return f.workers, nil

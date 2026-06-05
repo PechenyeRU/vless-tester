@@ -126,6 +126,17 @@ type TestRun struct {
 	UlMbps    *float64
 	Status    RunStatus
 	Error     string
+	// Checks carries extensible per-platform outcomes (media unlock, etc.) the
+	// worker reported alongside the run; persisted in the checks table.
+	Checks []CheckOutcome
+}
+
+// CheckOutcome is one extensible check result a worker reports for a server
+// (e.g. a streaming/AI unlock probe). Detail is a short region/tier/reason.
+type CheckOutcome struct {
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // Check is an extensible approval check result (reachability, geo, dns-leak).

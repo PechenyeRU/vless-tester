@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
 	"github.com/whitedns/vless-tester/internal/core"
@@ -21,7 +22,9 @@ type ProbeRunner struct {
 	// funnel jobs, so latency probes fan out wide while bandwidth-sensitive speed
 	// tests stay limited (DESIGN 4). nil means no extra gating.
 	SpeedGate *checks.Semaphore
-	NewClient func(socksAddr string) (*http.Client, error)
+	// MediaTimeout bounds each media-unlock probe. Zero uses the check default.
+	MediaTimeout time.Duration
+	NewClient    func(socksAddr string) (*http.Client, error)
 }
 
 // Run measures one job. Latency always runs (it is the cheap gate); speed runs
@@ -58,10 +61,14 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		return res
 	}
 
+	// Media-unlock probes run through the same proxy once the server is alive,
+	// independent of the speed result.
+	res.Checks = p.runMedia(ctx, client, job.Checks)
+
 	// Bandwidth-sensitive: only a bounded number of speed legs run at once.
 	if p.SpeedGate != nil {
 		if err := p.SpeedGate.Acquire(ctx); err != nil {
-			return res // ctx cancelled; keep the latency-only result
+			return res // ctx cancelled; keep what we have so far
 		}
 		defer p.SpeedGate.Release()
 	}
@@ -77,6 +84,26 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		res.Error = sp.Detail
 	}
 	return res
+}
+
+// runMedia probes each requested platform through the proxy and returns the
+// outcomes. Probe errors are non-fatal: a failing probe is reported as not
+// unlocked rather than failing the whole job.
+func (p ProbeRunner) runMedia(ctx context.Context, client *http.Client, platforms []string) []model.CheckOutcome {
+	if len(platforms) == 0 {
+		return nil
+	}
+	media := checks.NewMediaChecks(platforms, p.MediaTimeout)
+	out := make([]model.CheckOutcome, 0, len(media))
+	for _, m := range media {
+		r, err := m.Run(ctx, client)
+		detail := r.Detail
+		if err != nil {
+			detail = err.Error()
+		}
+		out = append(out, model.CheckOutcome{Name: m.Platform, Passed: r.Passed, Detail: detail})
+	}
+	return out
 }
 
 func fail(err error) Result {

@@ -14,11 +14,12 @@ import (
 // apiFake is an in-memory api.Store so the client talks to the real api handler
 // over httptest, verifying the JSON contract end to end without a database.
 type apiFake struct {
-	registered map[string]model.Worker
-	jobs       []store.ClaimedJob
-	owned      map[int64]bool
-	results    []model.TestRun
-	nacked     []int64
+	registered     map[string]model.Worker
+	jobs           []store.ClaimedJob
+	owned          map[int64]bool
+	results        []model.TestRun
+	nacked         []int64
+	mediaPlatforms []string
 }
 
 func newAPIFake() *apiFake {
@@ -47,6 +48,7 @@ func (f *apiFake) NackJobs(_ context.Context, _ string, ids []int64) (int64, err
 	f.nacked = append(f.nacked, ids...)
 	return int64(len(ids)), nil
 }
+func (f *apiFake) MediaChecks(_ context.Context) ([]string, error) { return f.mediaPlatforms, nil }
 
 // tokResolver authenticates one secret as one worker name.
 type tokResolver struct{ token, name string }
