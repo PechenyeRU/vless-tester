@@ -62,11 +62,12 @@ func parseURLStyle(raw string, proto model.Protocol) (model.Server, error) {
 	}
 
 	srv := model.Server{
-		RawURI:   raw,
-		Protocol: proto,
-		Host:     host,
-		Port:     port,
-		Params:   flattenQuery(u.Query()),
+		RawURI:     raw,
+		Protocol:   proto,
+		Host:       host,
+		Port:       port,
+		Params:     flattenQuery(u.Query()),
+		Credential: credential,
 	}
 	srv.Fingerprint = fingerprint(srv, credential)
 	return srv, nil
@@ -116,11 +117,12 @@ func parseVMess(raw string) (model.Server, error) {
 	putIf(params, "aid", toString(v.Aid))
 
 	srv := model.Server{
-		RawURI:   raw,
-		Protocol: model.ProtocolVMess,
-		Host:     v.Add,
-		Port:     port,
-		Params:   params,
+		RawURI:     raw,
+		Protocol:   model.ProtocolVMess,
+		Host:       v.Add,
+		Port:       port,
+		Params:     params,
+		Credential: v.ID,
 	}
 	srv.Fingerprint = fingerprint(srv, v.ID)
 	return srv, nil
@@ -188,11 +190,12 @@ func parseShadowsocks(raw string) (model.Server, error) {
 	}
 
 	srv := model.Server{
-		RawURI:   raw,
-		Protocol: model.ProtocolShadowsocks,
-		Host:     host,
-		Port:     port,
-		Params:   params,
+		RawURI:     raw,
+		Protocol:   model.ProtocolShadowsocks,
+		Host:       host,
+		Port:       port,
+		Params:     params,
+		Credential: password,
 	}
 	srv.Fingerprint = fingerprint(srv, password)
 	return srv, nil

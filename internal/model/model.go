@@ -30,8 +30,12 @@ type Server struct {
 	Country     string // ISO-3166 alpha-2, empty until GeoIP lookup
 	SeqName     string // stable per-country name, e.g. "FR110"
 	Params      map[string]string
-	FirstSeen   time.Time
-	LastSeen    time.Time
+	// Credential is the protocol secret (uuid, password, or "uuid:password").
+	// It is parsed from the link and used by the core to build an outbound; it
+	// is never persisted as a column (raw_uri already carries it).
+	Credential string
+	FirstSeen  time.Time
+	LastSeen   time.Time
 }
 
 // JobPhase is a stage of the funnel pipeline.
