@@ -40,6 +40,9 @@ type Server struct {
 	// Token is the shared bearer secret. When empty, auth is disabled (intended
 	// for local development only); Handler logs a warning in that case.
 	Token string
+	// Bounds caps implausible worker-reported numbers; the zero value uses
+	// sensible defaults.
+	Bounds Bounds
 	// Logf is an optional logger; nil discards.
 	Logf func(format string, args ...any)
 }
@@ -221,13 +224,8 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 	}
 	accepted := 0
 	for _, item := range req.Results {
-		run := model.TestRun{
-			Status:    normalizeStatus(item.Status),
-			LatencyMs: item.LatencyMs,
-			DlMbps:    item.DlMbps,
-			UlMbps:    item.UlMbps,
-			Error:     item.Error,
-		}
+		// The worker is untrusted: bound its numbers before they reach history.
+		run := s.Bounds.sanitize(item)
 		ok, err := s.Store.RecordResult(r.Context(), req.WorkerID, item.JobID, run)
 		if err != nil {
 			s.logf("api: results %s job %d: %v", req.WorkerID, item.JobID, err)

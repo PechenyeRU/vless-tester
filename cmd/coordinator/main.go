@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/api"
-	"github.com/whitedns/vless-tester/internal/checks"
-	"github.com/whitedns/vless-tester/internal/core"
 	"github.com/whitedns/vless-tester/internal/engine"
 	"github.com/whitedns/vless-tester/internal/ingest"
 	"github.com/whitedns/vless-tester/internal/model"
@@ -49,31 +47,68 @@ func run() error {
 		return err
 	}
 
-	eng, err := buildEngine(ctx, st)
-	if err != nil {
-		return err
-	}
+	eng := buildEngine(ctx, st)
 
 	sched := scheduler.New(func(name string, err error) {
 		log.Printf("job %q error: %v", name, err)
 	})
 
-	// Test cycle: ingest sources, run the funnel, publish.
+	// Dispatch: ingest sources and enqueue a fan-out of jobs for the fleet. It is
+	// a no-op while a previous cycle is still draining.
 	sched.Add(scheduler.Job{
-		Name:       "cycle",
-		Interval:   intervalSetting(ctx, st, "publish.interval", 12*time.Hour),
+		Name:       "dispatch",
+		Interval:   intervalSetting(ctx, st, "dispatch.interval", 12*time.Hour),
 		RunOnStart: true,
 		Run: func(ctx context.Context) error {
 			servers, err := loadServers(ctx, st)
 			if err != nil {
 				return err
 			}
-			log.Printf("cycle: testing %d servers", len(servers))
-			sum, err := eng.RunOnce(ctx, servers)
+			batch, dispatched, err := eng.DispatchCycle(ctx, servers)
 			if err != nil {
 				return err
 			}
-			log.Printf("cycle: tested %d, approved %d", sum.Tested, sum.Approved)
+			if dispatched {
+				log.Printf("dispatch: batch %d, %d servers enqueued", batch, len(servers))
+			} else {
+				log.Printf("dispatch: skipped, a cycle is still in progress")
+			}
+			return nil
+		},
+	})
+
+	// Reconcile: requeue dead-worker jobs and publish once the batch drains.
+	sched.Add(scheduler.Job{
+		Name:       "reconcile",
+		Interval:   intervalSetting(ctx, st, "reconcile.interval", 10*time.Second),
+		RunOnStart: true,
+		Run: func(ctx context.Context) error {
+			res, err := eng.Reconcile(ctx)
+			if err != nil {
+				return err
+			}
+			if res.Requeued > 0 || res.Failed > 0 {
+				log.Printf("reconcile: requeued %d, failed %d", res.Requeued, res.Failed)
+			}
+			if res.Published {
+				log.Printf("reconcile: batch complete, approved %d", res.Approved)
+			}
+			return nil
+		},
+	})
+
+	// Fleet metrics: periodic snapshot of fleet and queue health.
+	sched.Add(scheduler.Job{
+		Name:       "metrics",
+		Interval:   60 * time.Second,
+		RunOnStart: false,
+		Run: func(ctx context.Context) error {
+			fs, err := st.Fleet(ctx, 90*time.Second)
+			if err != nil {
+				return err
+			}
+			log.Printf("fleet: workers=%d alive=%d | jobs queued=%d claimed=%d done=%d failed=%d",
+				fs.Workers, fs.Alive, fs.Queued, fs.Claimed, fs.Done, fs.Failed)
 			return nil
 		},
 	})
@@ -139,8 +174,10 @@ func apiAddr() string {
 	return ":8080"
 }
 
-// buildEngine wires the engine with the real sing-box core and SOCKS client.
-func buildEngine(_ context.Context, st *store.Store) (*engine.Engine, error) {
+// buildEngine wires the coordinator-side engine. It does no in-process probing
+// (remote workers test); it dispatches jobs, reconciles, and publishes. The gate
+// and queue knobs come from settings so they are tunable from the admin UI.
+func buildEngine(ctx context.Context, st *store.Store) *engine.Engine {
 	var resolver naming.CountryResolver
 	if path := geoipPath(); fileExists(path) {
 		if mm, err := naming.OpenMaxMind(path); err == nil {
@@ -152,23 +189,24 @@ func buildEngine(_ context.Context, st *store.Store) (*engine.Engine, error) {
 		publisher = &output.GitPublisher{RepoURL: repo, Branch: "main"}
 	}
 
+	required := intSetting(ctx, st, "approval.required_workers", 1)
 	return &engine.Engine{
 		Store:     st,
-		Prober:    coreProber{opts: core.Options{StartTimeout: 8 * time.Second}},
-		NewClient: engine.SOCKS5Client,
-		Latency:   checks.LatencyCheck{Timeout: 5 * time.Second},
-		Speed: checks.SpeedCheck{Config: checks.SpeedConfig{
-			DownloadURL: "https://speed.cloudflare.com/__down",
-			UploadURL:   "https://speed.cloudflare.com/__up",
-			Adaptive:    true,
-		}},
 		Resolver:  resolver,
 		Seq:       naming.Allocator{Backend: st.NewSeqBackend()},
 		Publisher: publisher,
 		Brand:     "@WhiteDNS",
-		WorkerID:  "coordinator",
-		Approval:  engine.Approval{MaxLatencyMs: 2000, MinDlMBps: 0.5},
-	}, nil
+		Approval: engine.Approval{
+			MaxLatencyMs:    intSetting(ctx, st, "approval.max_latency_ms", 800),
+			MinDlMBps:       floatSetting(ctx, st, "approval.min_dl_mbps", 1),
+			RequiredWorkers: required,
+			AllowPartial:    boolSetting(ctx, st, "approval.allow_partial", true),
+		},
+		Fanout:      required,
+		LeaseTTL:    intervalSetting(ctx, st, "jobs.lease_ttl", 2*time.Minute),
+		MaxAttempts: intSetting(ctx, st, "jobs.max_attempts", 3),
+		AliveWindow: 90 * time.Second,
+	}
 }
 
 // loadServers fetches and parses all enabled ingest sources.
@@ -236,11 +274,29 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// coreProber adapts the sing-box core to the engine.Prober interface.
-type coreProber struct {
-	opts core.Options
+// intSetting reads an integer setting, falling back to def.
+func intSetting(ctx context.Context, st *store.Store, key string, def int) int {
+	var v int
+	if err := st.GetSetting(ctx, key, &v); err != nil {
+		return def
+	}
+	return v
 }
 
-func (p coreProber) Start(ctx context.Context, srv model.Server) (engine.Instance, error) {
-	return core.Start(ctx, srv, p.opts)
+// floatSetting reads a float setting, falling back to def.
+func floatSetting(ctx context.Context, st *store.Store, key string, def float64) float64 {
+	var v float64
+	if err := st.GetSetting(ctx, key, &v); err != nil {
+		return def
+	}
+	return v
+}
+
+// boolSetting reads a boolean setting, falling back to def.
+func boolSetting(ctx context.Context, st *store.Store, key string, def bool) bool {
+	var v bool
+	if err := st.GetSetting(ctx, key, &v); err != nil {
+		return def
+	}
+	return v
 }

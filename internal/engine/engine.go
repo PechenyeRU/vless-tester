@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
 	"github.com/whitedns/vless-tester/internal/model"
@@ -27,27 +29,33 @@ type Prober interface {
 // ClientFactory builds an http.Client that routes through a SOCKS address.
 type ClientFactory func(socksAddr string) (*http.Client, error)
 
-// Approval decides whether a measured server is published.
+// Approval is the corroboration gate. A server is published when at least
+// RequiredWorkers distinct workers each measured it within the latency/speed
+// bounds. AllowPartial relaxes the count to 1 when the fleet is smaller than N,
+// so a small deployment still publishes (DESIGN 5).
 type Approval struct {
-	MaxLatencyMs int
-	MinDlMBps    float64
+	MaxLatencyMs    int
+	MinDlMBps       float64
+	RequiredWorkers int
+	AllowPartial    bool
 }
 
-func (a Approval) approved(latencyMs *int, dlMBps *float64) bool {
-	if latencyMs == nil || *latencyMs > a.MaxLatencyMs {
-		return false
+// required is the effective distinct-worker count the gate demands.
+func (a Approval) required() int {
+	if a.AllowPartial {
+		return 1
 	}
-	if dlMBps == nil || *dlMBps < a.MinDlMBps {
-		return false
+	if a.RequiredWorkers < 1 {
+		return 1
 	}
-	return true
+	return a.RequiredWorkers
 }
 
-// Engine orchestrates the single-node pipeline: for each server it starts a
-// proxy, runs the funnel (latency then speed), records results, assigns a stable
-// name, and finally publishes the approved set. It depends only on interfaces,
-// so the composition root wires the real core/SOCKS implementations while tests
-// inject stubs.
+// Engine orchestrates the test pipeline. It serves two modes from the same
+// pieces: an in-process single-node run (RunOnce, used by cmd/tester) and the
+// distributed cycle (DispatchCycle enqueues work for remote workers; Reconcile
+// requeues dead-worker jobs and publishes once a batch drains). Both publish via
+// the same history-driven, corroboration-aware gate, so re-gating never retests.
 type Engine struct {
 	Store     *store.Store
 	Prober    Prober
@@ -60,7 +68,16 @@ type Engine struct {
 	Brand     string
 	WorkerID  string
 	Approval  Approval
+
+	// Distributed-cycle knobs (unused by RunOnce).
+	Fanout      int           // distinct workers per config (>=1)
+	LeaseTTL    time.Duration // a claim older than this is considered dead
+	MaxAttempts int           // 0 = unlimited retries before a job is failed
+	AliveWindow time.Duration // a worker seen within this counts as alive
 }
+
+// ErrCycleInProgress is returned by DispatchCycle when a batch is still draining.
+var ErrCycleInProgress = errors.New("engine: a test cycle is already in progress")
 
 // Summary reports the outcome of a run.
 type Summary struct {
@@ -69,7 +86,8 @@ type Summary struct {
 	Artifacts map[string][]byte
 }
 
-// RunOnce processes a batch of already-parsed servers end to end.
+// RunOnce processes a batch of already-parsed servers end to end, in-process.
+// It is the single-node path (cmd/tester): this process is the only worker.
 func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, error) {
 	var sum Summary
 
@@ -79,8 +97,6 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		return sum, fmt.Errorf("engine: register worker: %w", err)
 	}
 
-	// Every cycle is a batch: results are written to the append-only history
-	// tagged with this batch so publishing can select "only the latest batch".
 	batchID, err := e.Store.CreateBatch(ctx, "scheduled")
 	if err != nil {
 		return sum, fmt.Errorf("engine: create batch: %w", err)
@@ -94,29 +110,17 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		sum.Tested++
 
 		lat, sp := e.probe(ctx, srv)
-		if err := e.recordRun(ctx, id, batchID, model.PhaseLatency, lat); err != nil {
+		if err := e.recordFunnel(ctx, id, batchID, lat, sp); err != nil {
 			return sum, err
 		}
 		if !lat.Passed {
 			continue
 		}
-		if err := e.recordRun(ctx, id, batchID, model.PhaseSpeed, sp); err != nil {
+		// Assign a stable name during the run so the single-node path keeps its
+		// deterministic, server-order naming. The distributed path names at
+		// publish time instead (see ensureGeo).
+		if err := e.assignGeo(ctx, id, srv.Fingerprint, srv.Host); err != nil {
 			return sum, err
-		}
-
-		country := e.country(ctx, srv.Host)
-		// Unknown country (e.g. CDN/anycast IPs) still gets a stable name under
-		// the "XX" bucket instead of a bare number.
-		seqCountry := country
-		if seqCountry == "" {
-			seqCountry = "XX"
-		}
-		seqName, err := e.Seq.Assign(ctx, srv.Fingerprint, seqCountry)
-		if err != nil {
-			return sum, fmt.Errorf("engine: assign seq: %w", err)
-		}
-		if err := e.Store.SetServerGeo(ctx, id, country, seqName); err != nil {
-			return sum, fmt.Errorf("engine: set geo: %w", err)
 		}
 	}
 
@@ -124,8 +128,6 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 		return sum, fmt.Errorf("engine: finish batch: %w", err)
 	}
 
-	// Publishing always reads the append-only history, so it is identical
-	// whether it follows a test cycle or runs standalone after a gate change.
 	pub, err := e.PublishFromHistory(ctx)
 	if err != nil {
 		return sum, err
@@ -135,46 +137,132 @@ func (e *Engine) RunOnce(ctx context.Context, servers []model.Server) (Summary, 
 	return sum, nil
 }
 
-// PublishFromHistory re-evaluates the approval gate against the stored test
-// history and publishes the working list. It runs no proxy tests, so changing
-// the quality/quantity gate and re-publishing never requires re-testing.
+// DispatchCycle starts a distributed cycle: it opens a batch and enqueues a
+// fan-out of funnel jobs for the remote fleet to claim. dispatched is false
+// (with no error) when a previous cycle is still draining, so the scheduler can
+// poll harmlessly. Fan-out is capped to the live fleet size so the batch can
+// always drain even when fewer than N workers are online.
+func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (batchID int64, dispatched bool, err error) {
+	if _, active, err := e.Store.LatestUnfinishedBatch(ctx); err != nil {
+		return 0, false, fmt.Errorf("engine: check active batch: %w", err)
+	} else if active {
+		return 0, false, nil
+	}
+
+	batchID, err = e.Store.CreateBatch(ctx, "scheduled")
+	if err != nil {
+		return 0, false, fmt.Errorf("engine: create batch: %w", err)
+	}
+	n := e.fanout(ctx)
+	for _, srv := range servers {
+		id, err := e.Store.UpsertServer(ctx, srv)
+		if err != nil {
+			return 0, false, fmt.Errorf("engine: upsert server: %w", err)
+		}
+		if _, err := e.Store.EnqueueFanout(ctx, batchID, id, model.PhaseFunnel, n); err != nil {
+			return 0, false, fmt.Errorf("engine: enqueue fanout: %w", err)
+		}
+	}
+	return batchID, true, nil
+}
+
+// ReconcileResult reports what one reconcile pass did.
+type ReconcileResult struct {
+	Requeued  int64
+	Failed    int64
+	Published bool
+	Approved  int
+	OpenJobs  int
+}
+
+// Reconcile advances the active distributed cycle: it requeues dead-worker jobs
+// (and fails ones past MaxAttempts), and when the batch has drained it finishes
+// the batch and publishes. It is safe to call on a timer; it is a no-op when no
+// cycle is active or the batch is still in flight.
+func (e *Engine) Reconcile(ctx context.Context) (ReconcileResult, error) {
+	var res ReconcileResult
+
+	requeued, failed, err := e.Store.RequeueExpired(ctx, e.leaseTTL(), e.MaxAttempts)
+	if err != nil {
+		return res, fmt.Errorf("engine: requeue: %w", err)
+	}
+	res.Requeued, res.Failed = requeued, failed
+
+	id, active, err := e.Store.LatestUnfinishedBatch(ctx)
+	if err != nil {
+		return res, fmt.Errorf("engine: active batch: %w", err)
+	}
+	if !active {
+		return res, nil
+	}
+
+	open, err := e.Store.OpenJobCount(ctx, &id)
+	if err != nil {
+		return res, fmt.Errorf("engine: open jobs: %w", err)
+	}
+	res.OpenJobs = open
+	if open > 0 {
+		return res, nil // still draining
+	}
+
+	if err := e.Store.FinishBatch(ctx, id); err != nil {
+		return res, fmt.Errorf("engine: finish batch: %w", err)
+	}
+	pub, err := e.PublishFromHistory(ctx)
+	if err != nil {
+		return res, err
+	}
+	res.Published = true
+	res.Approved = pub.Approved
+	return res, nil
+}
+
+// PublishFromHistory applies the corroboration gate to the stored history and
+// publishes the working list. It runs no proxy tests, so changing the gate and
+// re-publishing never retests. It names any approved server still lacking a
+// stable name (the distributed path defers naming to here).
 func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	var sum Summary
 
-	// Default to the latest completed batch; fall back to the rolling
-	// latest-per-server view when no batch has finished yet.
+	// Default to the latest completed batch; nil falls back to rolling history.
 	var filter *int64
 	if id, ok, err := e.Store.LatestFinishedBatch(ctx); err != nil {
 		return sum, fmt.Errorf("engine: latest batch: %w", err)
 	} else if ok {
 		filter = &id
 	}
-	results, err := e.Store.ServerResults(ctx, filter)
-	if err != nil {
-		return sum, fmt.Errorf("engine: read history: %w", err)
-	}
 
-	var approved []output.PublicServer
-	for _, r := range results {
-		if e.Approval.approved(r.LatencyMs, r.DlMbps) {
-			approved = append(approved, output.PublicServer{
-				RawURI:    r.RawURI,
-				Country:   r.Country,
-				SeqName:   r.SeqName,
-				SpeedMBps: deref(r.DlMbps),
-			})
-		}
+	approved, err := e.Store.ApprovedServers(ctx, filter, e.Approval.MinDlMBps, e.Approval.MaxLatencyMs, e.Approval.required())
+	if err != nil {
+		return sum, fmt.Errorf("engine: approved servers: %w", err)
 	}
 	sum.Approved = len(approved)
 
-	files, err := output.BuildArtifacts(approved, output.Options{Brand: e.Brand})
+	pubServers := make([]output.PublicServer, 0, len(approved))
+	for _, a := range approved {
+		country, seqName := a.Country, a.SeqName
+		if seqName == "" {
+			country, seqName, err = e.ensureGeo(ctx, a.ServerID, a.Fingerprint, a.Host)
+			if err != nil {
+				return sum, err
+			}
+		}
+		pubServers = append(pubServers, output.PublicServer{
+			RawURI:    a.RawURI,
+			Country:   country,
+			SeqName:   seqName,
+			SpeedMBps: a.MedianDlMbps,
+		})
+	}
+
+	files, err := output.BuildArtifacts(pubServers, output.Options{Brand: e.Brand})
 	if err != nil {
 		return sum, err
 	}
 	sum.Artifacts = files
 
 	if e.Publisher != nil {
-		msg := fmt.Sprintf("publish: %d working servers", len(approved))
+		msg := fmt.Sprintf("publish: %d working servers", len(pubServers))
 		if err := e.Publisher.Publish(ctx, files, msg); err != nil {
 			return sum, fmt.Errorf("engine: publish: %w", err)
 		}
@@ -183,7 +271,6 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 }
 
 // probe starts the proxy and runs latency, then speed only if latency passed.
-// Failures are folded into the returned Results so the caller can record them.
 func (e *Engine) probe(ctx context.Context, srv model.Server) (lat, sp checks.Result) {
 	inst, err := e.Prober.Start(ctx, srv)
 	if err != nil {
@@ -210,26 +297,57 @@ func (e *Engine) probe(ctx context.Context, srv model.Server) (lat, sp checks.Re
 	return lat, sp
 }
 
-func (e *Engine) recordRun(ctx context.Context, serverID, batchID int64, phase model.JobPhase, res checks.Result) error {
-	status := model.StatusError
-	if res.Passed {
-		status = model.StatusOK
+// recordFunnel writes one combined measurement row (latency + speed) per server,
+// the same shape a remote worker reports, so the corroboration gate treats both
+// paths identically.
+func (e *Engine) recordFunnel(ctx context.Context, serverID, batchID int64, lat, sp checks.Result) error {
+	run := model.TestRun{
+		ServerID: serverID,
+		WorkerID: e.WorkerID,
+		BatchID:  &batchID,
+		Phase:    model.PhaseFunnel,
+		Status:   model.StatusError,
 	}
-	_, err := e.Store.InsertTestRun(ctx, model.TestRun{
-		ServerID:  serverID,
-		WorkerID:  e.WorkerID,
-		BatchID:   &batchID,
-		Phase:     phase,
-		LatencyMs: res.LatencyMs,
-		DlMbps:    res.DlMbps,
-		UlMbps:    res.UlMbps,
-		Status:    status,
-		Error:     res.Detail,
-	})
-	if err != nil {
-		return fmt.Errorf("engine: record %s run: %w", phase, err)
+	if lat.Passed {
+		run.Status = model.StatusOK
+		run.LatencyMs = lat.LatencyMs
+		run.DlMbps = sp.DlMbps
+		run.UlMbps = sp.UlMbps
+	} else {
+		run.Status = model.StatusTimeout
+		run.LatencyMs = lat.LatencyMs
+		run.Error = lat.Detail
+	}
+	if _, err := e.Store.InsertTestRun(ctx, run); err != nil {
+		return fmt.Errorf("engine: record funnel run: %w", err)
 	}
 	return nil
+}
+
+// assignGeo resolves the country, assigns a stable sequence name, and persists
+// both for a server.
+func (e *Engine) assignGeo(ctx context.Context, serverID int64, fingerprint, host string) error {
+	_, _, err := e.ensureGeo(ctx, serverID, fingerprint, host)
+	return err
+}
+
+// ensureGeo resolves+assigns+persists the country and sequence name and returns
+// them. Unknown countries fall under the "XX" bucket so every node still gets a
+// stable name rather than a bare number.
+func (e *Engine) ensureGeo(ctx context.Context, serverID int64, fingerprint, host string) (country, seqName string, err error) {
+	country = e.country(ctx, host)
+	seqCountry := country
+	if seqCountry == "" {
+		seqCountry = "XX"
+	}
+	seqName, err = e.Seq.Assign(ctx, fingerprint, seqCountry)
+	if err != nil {
+		return "", "", fmt.Errorf("engine: assign seq: %w", err)
+	}
+	if err := e.Store.SetServerGeo(ctx, serverID, country, seqName); err != nil {
+		return "", "", fmt.Errorf("engine: set geo: %w", err)
+	}
+	return country, seqName, nil
 }
 
 // country resolves the server's country, returning "" when unknown.
@@ -244,9 +362,33 @@ func (e *Engine) country(ctx context.Context, host string) string {
 	return c
 }
 
-func deref(p *float64) float64 {
-	if p == nil {
-		return 0
+// fanout is the per-config worker count, capped to the live fleet so the batch
+// can always drain. With no workers yet it stays at 1 (the first worker drains).
+func (e *Engine) fanout(ctx context.Context) int {
+	n := e.Fanout
+	if n < 1 {
+		n = 1
 	}
-	return *p
+	alive, err := e.Store.AliveWorkers(ctx, e.aliveWindow())
+	if err != nil || alive < 1 {
+		alive = 1
+	}
+	if alive < n {
+		n = alive
+	}
+	return n
+}
+
+func (e *Engine) leaseTTL() time.Duration {
+	if e.LeaseTTL <= 0 {
+		return 2 * time.Minute
+	}
+	return e.LeaseTTL
+}
+
+func (e *Engine) aliveWindow() time.Duration {
+	if e.AliveWindow <= 0 {
+		return 60 * time.Second
+	}
+	return e.AliveWindow
 }

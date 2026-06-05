@@ -14,9 +14,13 @@ import (
 // sing-box for the server, and runs the funnel appropriate to the job's phase.
 // It reports only raw measurements; the coordinator decides what they mean.
 type ProbeRunner struct {
-	Options   core.Options
-	Latency   checks.LatencyCheck
-	Speed     checks.SpeedCheck
+	Options core.Options
+	Latency checks.LatencyCheck
+	Speed   checks.SpeedCheck
+	// SpeedGate bounds how many speed legs run at once across all concurrent
+	// funnel jobs, so latency probes fan out wide while bandwidth-sensitive speed
+	// tests stay limited (DESIGN 4). nil means no extra gating.
+	SpeedGate *checks.Semaphore
 	NewClient func(socksAddr string) (*http.Client, error)
 }
 
@@ -52,6 +56,14 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 
 	if model.JobPhase(job.Phase) == model.PhaseLatency {
 		return res
+	}
+
+	// Bandwidth-sensitive: only a bounded number of speed legs run at once.
+	if p.SpeedGate != nil {
+		if err := p.SpeedGate.Acquire(ctx); err != nil {
+			return res // ctx cancelled; keep the latency-only result
+		}
+		defer p.SpeedGate.Release()
 	}
 
 	sp, err := p.Speed.Run(ctx, client)

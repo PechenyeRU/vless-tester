@@ -77,6 +77,15 @@ func run() error {
 	capacity := worker.Capacity(baselineCtx, capCfg, measure)
 	cancel()
 
+	// Speed tests saturate the link, so only Capacity.Speed run at once across
+	// all concurrent funnel jobs; latency probes are cheap and fan out wide.
+	speedGate := checks.NewSemaphore(capacity.Speed)
+
+	batchMax := envInt("WORKER_BATCH")
+	if batchMax <= 0 {
+		batchMax = capacity.Latency
+	}
+
 	w := &worker.Worker{
 		ID:       id,
 		Capacity: capacity,
@@ -85,11 +94,13 @@ func run() error {
 			Options:   core.Options{StartTimeout: 8 * time.Second},
 			Latency:   checks.LatencyCheck{Timeout: 5 * time.Second},
 			Speed:     checks.SpeedCheck{Config: speedCfg},
+			SpeedGate: speedGate,
 			NewClient: engine.SOCKS5Client,
 		},
-		BatchMax: envInt("WORKER_BATCH"),
-		Idle:     5 * time.Second,
-		Logf:     log.Printf,
+		BatchMax:    batchMax,
+		Concurrency: capacity.Latency,
+		Idle:        5 * time.Second,
+		Logf:        log.Printf,
 	}
 
 	log.Printf("worker starting: id=%s coordinator=%s", id, base)
