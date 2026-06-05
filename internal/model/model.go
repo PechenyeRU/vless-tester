@@ -156,6 +156,18 @@ type FunnelStage struct {
 	Gate  bool   `json:"gate"`
 }
 
+// SpeedSpec is the speed-test configuration the coordinator pushes to the worker
+// via the claim, so the endpoints and sizing are tunable from settings (e.g. a
+// self-hosted speed-test URL). Zero/empty fields keep the worker's default.
+type SpeedSpec struct {
+	DownloadURL string `json:"download_url,omitempty"`
+	UploadURL   string `json:"upload_url,omitempty"`
+	Streams     int    `json:"streams,omitempty"`
+	Bytes       int    `json:"bytes,omitempty"`
+	Adaptive    *bool  `json:"adaptive,omitempty"`
+	TimeoutMs   int    `json:"timeout_ms,omitempty"`
+}
+
 // Check is an extensible approval check result (reachability, geo, dns-leak).
 type Check struct {
 	ID       int64

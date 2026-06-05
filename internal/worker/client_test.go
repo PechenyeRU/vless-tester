@@ -54,6 +54,9 @@ func (f *apiFake) IPRiskEnabled(_ context.Context) (bool, error)    { return fal
 func (f *apiFake) FunnelStages(_ context.Context) ([]model.FunnelStage, error) {
 	return nil, nil
 }
+func (f *apiFake) SpeedSettings(_ context.Context) (model.SpeedSpec, error) {
+	return model.SpeedSpec{}, nil
+}
 
 // tokResolver authenticates one secret as one worker name.
 type tokResolver struct{ token, name string }

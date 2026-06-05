@@ -44,6 +44,8 @@ type Store interface {
 	IPRiskEnabled(ctx context.Context) (bool, error)
 	// FunnelStages returns the ordered, gateable funnel pipeline pushed to workers.
 	FunnelStages(ctx context.Context) ([]model.FunnelStage, error)
+	// SpeedSettings returns the speed-test config pushed to workers.
+	SpeedSettings(ctx context.Context) (model.SpeedSpec, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity and
@@ -253,6 +255,7 @@ type claimedJob struct {
 	Require  []string            `json:"require,omitempty"`
 	IPRisk   bool                `json:"ip_risk,omitempty"`
 	Stages   []model.FunnelStage `json:"stages,omitempty"`
+	Speed    *model.SpeedSpec    `json:"speed,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +312,12 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		s.logf("api: claim %s: funnel stages: %v", workerID, err)
 		stages = nil // best-effort; worker falls back to its default order
 	}
+	var speed *model.SpeedSpec
+	if spec, err := s.Store.SpeedSettings(r.Context()); err != nil {
+		s.logf("api: claim %s: speed settings: %v", workerID, err)
+	} else {
+		speed = &spec
+	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
@@ -321,6 +330,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			Require:  require,
 			IPRisk:   ipRisk,
 			Stages:   stages,
+			Speed:    speed,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

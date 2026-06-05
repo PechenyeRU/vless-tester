@@ -93,7 +93,7 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 				return res
 			}
 		case "speed":
-			sp, ran := p.runSpeed(ctx, client, &res)
+			sp, ran := p.runSpeed(ctx, client, &res, job.Speed)
 			if !ran {
 				return res // ctx cancelled while waiting for the speed slot
 			}
@@ -118,14 +118,41 @@ var defaultStages = []model.FunnelStage{
 // runSpeed runs the bandwidth-bounded speed leg, recording dl/ul on res. ran is
 // false only when the context was cancelled while waiting for a speed slot (so
 // the caller keeps prior results); otherwise it ran (sp.Passed reports outcome).
-func (p ProbeRunner) runSpeed(ctx context.Context, client *http.Client, res *Result) (checks.Result, bool) {
+func (p ProbeRunner) runSpeed(ctx context.Context, client *http.Client, res *Result, spec *model.SpeedSpec) (checks.Result, bool) {
 	if p.SpeedGate != nil {
 		if err := p.SpeedGate.Acquire(ctx); err != nil {
 			return checks.Result{}, false
 		}
 		defer p.SpeedGate.Release()
 	}
-	sp, err := p.Speed.Run(ctx, client)
+	// Merge the coordinator-pushed speed config over the worker default, and
+	// bound the leg by its timeout when set.
+	check := p.Speed
+	if spec != nil {
+		cfg := p.Speed.Config
+		if spec.DownloadURL != "" {
+			cfg.DownloadURL = spec.DownloadURL
+		}
+		if spec.UploadURL != "" {
+			cfg.UploadURL = spec.UploadURL
+		}
+		if spec.Streams > 0 {
+			cfg.Streams = spec.Streams
+		}
+		if spec.Bytes > 0 {
+			cfg.Bytes = spec.Bytes
+		}
+		if spec.Adaptive != nil {
+			cfg.Adaptive = *spec.Adaptive
+		}
+		check = checks.SpeedCheck{Config: cfg}
+		if spec.TimeoutMs > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(spec.TimeoutMs)*time.Millisecond)
+			defer cancel()
+		}
+	}
+	sp, err := check.Run(ctx, client)
 	if err != nil {
 		res.Error = err.Error()
 		return checks.Result{}, true

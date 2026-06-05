@@ -35,6 +35,9 @@ type Job struct {
 	// Stages is the ordered, gateable funnel pipeline (media, ip_risk, speed) the
 	// coordinator wants run after latency; empty means use the built-in default.
 	Stages []model.FunnelStage `json:"stages,omitempty"`
+	// Speed overrides the worker's speed-test config (custom endpoints, sizing,
+	// timeout); nil keeps the worker default.
+	Speed *model.SpeedSpec `json:"speed,omitempty"`
 }
 
 // Result is one measurement the worker reports back for a claimed job.

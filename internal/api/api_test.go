@@ -35,6 +35,7 @@ type fakeStore struct {
 	mediaRequire   []string
 	ipRisk         bool
 	stages         []model.FunnelStage
+	speed          model.SpeedSpec
 }
 
 func newFake() *fakeStore {
@@ -87,6 +88,9 @@ func (f *fakeStore) MediaRequire(_ context.Context) ([]string, error) { return f
 func (f *fakeStore) IPRiskEnabled(_ context.Context) (bool, error)    { return f.ipRisk, nil }
 func (f *fakeStore) FunnelStages(_ context.Context) ([]model.FunnelStage, error) {
 	return f.stages, nil
+}
+func (f *fakeStore) SpeedSettings(_ context.Context) (model.SpeedSpec, error) {
+	return f.speed, nil
 }
 
 // handlerProvider is satisfied by both *Server (worker plane) and *AdminServer

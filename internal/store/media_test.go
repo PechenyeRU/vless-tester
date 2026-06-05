@@ -56,6 +56,31 @@ func TestMediaRequireSetting(t *testing.T) {
 	}
 }
 
+func TestSpeedSettings(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	// Defaults from the seed (empty URLs, adaptive on).
+	spec, err := st.SpeedSettings(ctx)
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if spec.DownloadURL != "" || spec.Adaptive == nil || !*spec.Adaptive {
+		t.Fatalf("default spec = %+v", spec)
+	}
+
+	// Custom URL + download_mb override the byte target.
+	_ = st.SetSetting(ctx, "speed.download_url", "https://sp.example/__down")
+	_ = st.SetSetting(ctx, "speed.download_mb", 25)
+	spec, err = st.SpeedSettings(ctx)
+	if err != nil {
+		t.Fatalf("custom: %v", err)
+	}
+	if spec.DownloadURL != "https://sp.example/__down" || spec.Bytes != 25_000_000 {
+		t.Fatalf("custom spec = %+v", spec)
+	}
+}
+
 func TestIPRiskEnabledSetting(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
