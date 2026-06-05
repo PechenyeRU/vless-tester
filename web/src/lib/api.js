@@ -67,6 +67,7 @@ export const api = {
 	putSettings: (patch) => req('PUT', '/settings', patch),
 	action: (name) => req('POST', '/actions/' + name),
 	workerTokens: () => req('GET', '/worker-tokens'),
-	createWorkerToken: (name) => req('POST', '/worker-tokens', { name }),
+	createWorkerToken: (name, protocols) => req('POST', '/worker-tokens', { name, protocols }),
+	setWorkerTokenProtocols: (id, protocols) => req('PUT', '/worker-tokens/' + id, { protocols }),
 	revokeWorkerToken: (id) => req('DELETE', '/worker-tokens/' + id)
 };

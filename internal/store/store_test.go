@@ -180,7 +180,7 @@ func TestRequeueExpired(t *testing.T) {
 	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseLatency); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 10)
+	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 10, nil)
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("claim got %d err=%v", len(claimed), err)
 	}
@@ -254,7 +254,7 @@ func TestClaimJobsSkipLockedNoDoubleClaim(t *testing.T) {
 		go func(worker string) {
 			defer wg.Done()
 			for {
-				jobs, err := st.ClaimJobs(ctx, worker, model.PhaseLatency, 4)
+				jobs, err := st.ClaimJobs(ctx, worker, model.PhaseLatency, 4, nil)
 				if err != nil {
 					errs <- err
 					return
@@ -300,7 +300,7 @@ func TestRecordResult(t *testing.T) {
 	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseLatency); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 1)
+	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 1, nil)
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("claim got %d err=%v", len(claimed), err)
 	}
@@ -334,7 +334,7 @@ func TestRecordResult(t *testing.T) {
 	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseSpeed); err != nil {
 		t.Fatalf("enqueue speed: %v", err)
 	}
-	c2, _ := st.ClaimJobs(ctx, "w1", model.PhaseSpeed, 1)
+	c2, _ := st.ClaimJobs(ctx, "w1", model.PhaseSpeed, 1, nil)
 	if _, err := st.RecordResult(ctx, "w1", c2[0].JobID, model.TestRun{Status: model.StatusTimeout}); err != nil {
 		t.Fatalf("record fail: %v", err)
 	}
@@ -356,8 +356,8 @@ func TestNackJobs(t *testing.T) {
 	st.EnqueueJob(ctx, id1, model.PhaseLatency)
 	st.EnqueueJob(ctx, id2, model.PhaseLatency)
 
-	c1, _ := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 1)
-	c2, _ := st.ClaimJobs(ctx, "w2", model.PhaseLatency, 1)
+	c1, _ := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 1, nil)
+	c2, _ := st.ClaimJobs(ctx, "w2", model.PhaseLatency, 1, nil)
 	if len(c1) != 1 || len(c2) != 1 {
 		t.Fatalf("claims: w1=%d w2=%d", len(c1), len(c2))
 	}
@@ -384,7 +384,7 @@ func TestNackJobs(t *testing.T) {
 func recordPass(t *testing.T, st *store.Store, worker string, serverID int64, latency int, dl float64) {
 	t.Helper()
 	ctx := context.Background()
-	claimed, err := st.ClaimJobs(ctx, worker, model.PhaseFunnel, 1)
+	claimed, err := st.ClaimJobs(ctx, worker, model.PhaseFunnel, 1, nil)
 	if err != nil {
 		t.Fatalf("claim for %s: %v", worker, err)
 	}
@@ -440,16 +440,16 @@ func TestFanoutDistinctWorkers(t *testing.T) {
 
 	// w1 grabs one slot; asking for many more yields nothing (its only sibling is
 	// the slot it already holds).
-	first, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 10)
+	first, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 10, nil)
 	if len(first) != 1 {
 		t.Fatalf("w1 first claim = %d, want 1", len(first))
 	}
-	more, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 10)
+	more, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 10, nil)
 	if len(more) != 0 {
 		t.Fatalf("w1 must not claim a second slot of the same server, got %d", len(more))
 	}
 	// w2 takes the remaining slot.
-	second, _ := st.ClaimJobs(ctx, "w2", model.PhaseFunnel, 10)
+	second, _ := st.ClaimJobs(ctx, "w2", model.PhaseFunnel, 10, nil)
 	if len(second) != 1 {
 		t.Fatalf("w2 claim = %d, want 1", len(second))
 	}
@@ -467,7 +467,7 @@ func TestRequeueFailsExhausted(t *testing.T) {
 	st.EnqueueJob(ctx, srvID, model.PhaseFunnel)
 
 	// First claim: attempts becomes 1.
-	if _, err := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 1); err != nil {
+	if _, err := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 1, nil); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	// Lease expired and attempts (1) >= maxAttempts (1) -> failed, not requeued.

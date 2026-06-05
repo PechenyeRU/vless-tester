@@ -18,22 +18,25 @@ var errNotFound = errors.New("not found")
 // fakeAdminStore is an in-memory AdminStore so the admin handlers run with no
 // database. Each field scripts one method's output; calls are recorded.
 type fakeAdminStore struct {
-	servers      []store.ServerSummary
-	listFilter   store.ServerFilter
-	server       model.Server
-	getErr       error
-	history      []store.RunRecord
-	serverChecks []model.CheckOutcome
-	workers      []model.Worker
-	stats        store.Stats
-	sources      []model.Source
-	settings     map[string]json.RawMessage
-	upserted     []model.Source
-	toggled      map[int64]bool
-	setSettings  map[string]json.RawMessage
-	workerTokens []model.WorkerToken
-	createdToken string
-	deletedToken int64
+	servers          []store.ServerSummary
+	listFilter       store.ServerFilter
+	server           model.Server
+	getErr           error
+	history          []store.RunRecord
+	serverChecks     []model.CheckOutcome
+	workers          []model.Worker
+	stats            store.Stats
+	sources          []model.Source
+	settings         map[string]json.RawMessage
+	upserted         []model.Source
+	toggled          map[int64]bool
+	setSettings      map[string]json.RawMessage
+	workerTokens     []model.WorkerToken
+	createdToken     string
+	createdProtocols []string
+	deletedToken     int64
+	setProtocolsID   int64
+	setProtocols     []string
 }
 
 func newAdminFake() *fakeAdminStore {
@@ -83,8 +86,9 @@ func (f *fakeAdminStore) SetSetting(_ context.Context, key string, value any) er
 	f.setSettings[key] = value.(json.RawMessage)
 	return nil
 }
-func (f *fakeAdminStore) CreateWorkerToken(_ context.Context, name string) (string, error) {
+func (f *fakeAdminStore) CreateWorkerToken(_ context.Context, name string, protocols []string) (string, error) {
 	f.createdToken = name
+	f.createdProtocols = protocols
 	return "wt_fake-secret", nil
 }
 func (f *fakeAdminStore) ListWorkerTokens(_ context.Context) ([]model.WorkerToken, error) {
@@ -92,6 +96,11 @@ func (f *fakeAdminStore) ListWorkerTokens(_ context.Context) ([]model.WorkerToke
 }
 func (f *fakeAdminStore) DeleteWorkerToken(_ context.Context, id int64) (bool, error) {
 	f.deletedToken = id
+	return true, nil
+}
+func (f *fakeAdminStore) SetWorkerTokenProtocols(_ context.Context, id int64, protocols []string) (bool, error) {
+	f.setProtocolsID = id
+	f.setProtocols = protocols
 	return true, nil
 }
 

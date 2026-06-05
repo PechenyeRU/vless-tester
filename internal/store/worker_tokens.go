@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -38,8 +39,9 @@ func hashToken(token string) string {
 }
 
 // CreateWorkerToken mints a token for a worker name and returns the plaintext
-// secret. The secret is shown only here; only its hash is persisted.
-func (s *Store) CreateWorkerToken(ctx context.Context, name string) (string, error) {
+// secret. The secret is shown only here; only its hash is persisted. protocols
+// is the optional per-worker allow-list (nil/empty = all protocols).
+func (s *Store) CreateWorkerToken(ctx context.Context, name string, protocols []string) (string, error) {
 	if !workerNamePattern.MatchString(name) {
 		return "", fmt.Errorf("store: invalid worker name %q (allowed: A-Z a-z 0-9 -)", name)
 	}
@@ -50,8 +52,8 @@ func (s *Store) CreateWorkerToken(ctx context.Context, name string) (string, err
 	token := "wt_" + base64.RawURLEncoding.EncodeToString(raw)
 
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO worker_tokens (name, token_hash) VALUES ($1, $2)`,
-		name, hashToken(token),
+		`INSERT INTO worker_tokens (name, token_hash, protocols) VALUES ($1, $2, $3)`,
+		name, hashToken(token), protocolsJSON(protocols),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -62,10 +64,23 @@ func (s *Store) CreateWorkerToken(ctx context.Context, name string) (string, err
 	return token, nil
 }
 
+// SetWorkerTokenProtocols replaces a token's per-worker protocol allow-list
+// (empty = all). Returns false when no row matched.
+func (s *Store) SetWorkerTokenProtocols(ctx context.Context, id int64, protocols []string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE worker_tokens SET protocols = $2 WHERE id = $1`,
+		id, protocolsJSON(protocols),
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: set worker token protocols: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // ListWorkerTokens returns token metadata (never the secret), newest first.
 func (s *Store) ListWorkerTokens(ctx context.Context) ([]model.WorkerToken, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, enabled, created_at, last_used
+		`SELECT id, name, enabled, created_at, last_used, protocols
 		   FROM worker_tokens ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list worker tokens: %w", err)
@@ -74,31 +89,56 @@ func (s *Store) ListWorkerTokens(ctx context.Context) ([]model.WorkerToken, erro
 	var out []model.WorkerToken
 	for rows.Next() {
 		var t model.WorkerToken
-		if err := rows.Scan(&t.ID, &t.Name, &t.Enabled, &t.CreatedAt, &t.LastUsed); err != nil {
+		var protos []byte
+		if err := rows.Scan(&t.ID, &t.Name, &t.Enabled, &t.CreatedAt, &t.LastUsed, &protos); err != nil {
 			return nil, fmt.Errorf("store: scan worker token: %w", err)
 		}
+		t.Protocols = decodeProtocols(protos)
 		out = append(out, t)
 	}
 	return out, rows.Err()
 }
 
-// ResolveWorkerToken maps a presented secret to its worker name. ok is false for
-// an unknown or disabled token. A successful lookup stamps last_used.
-func (s *Store) ResolveWorkerToken(ctx context.Context, token string) (string, bool, error) {
-	var name string
-	err := s.pool.QueryRow(ctx,
+// ResolveWorkerToken maps a presented secret to its worker name and per-worker
+// protocol allow-list. ok is false for an unknown or disabled token. A
+// successful lookup stamps last_used.
+func (s *Store) ResolveWorkerToken(ctx context.Context, token string) (name string, protocols []string, ok bool, err error) {
+	var protos []byte
+	err = s.pool.QueryRow(ctx,
 		`UPDATE worker_tokens SET last_used = now()
 		   WHERE token_hash = $1 AND enabled
-		   RETURNING name`,
+		   RETURNING name, protocols`,
 		hashToken(token),
-	).Scan(&name)
+	).Scan(&name, &protos)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("store: resolve worker token: %w", err)
+		return "", nil, false, fmt.Errorf("store: resolve worker token: %w", err)
 	}
-	return name, true, nil
+	return name, decodeProtocols(protos), true, nil
+}
+
+// protocolsJSON encodes an allow-list as JSONB, storing NULL for empty so "no
+// restriction" is the column's natural absence of a value.
+func protocolsJSON(protocols []string) any {
+	if len(protocols) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(protocols)
+	return b
+}
+
+// decodeProtocols parses a stored JSONB allow-list, returning nil for NULL/empty.
+func decodeProtocols(raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil || len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // DeleteWorkerToken revokes a token by id. Revoked workers can no longer

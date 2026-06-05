@@ -51,17 +51,20 @@ func (s *Store) EnqueueFanout(ctx context.Context, batchID, serverID int64, phas
 // job for a (server, phase) it already holds or has already tested: this is how
 // fan-out spreads each config across different workers (DESIGN 5). Claimed jobs
 // are returned with their server raw_uri.
-func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int) ([]ClaimedJob, error) {
+func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int, protocols []string) ([]ClaimedJob, error) {
 	phaseFilter := string(phase)
 	const q = `
 		WITH locked AS (
 			-- Lock up to max claimable rows with the proven SKIP LOCKED pattern,
 			-- excluding any config this worker already holds/tested (cross-call
-			-- distinctness).
+			-- distinctness) and any protocol this worker may not test ($4, a
+			-- per-worker allow-list; NULL means no restriction).
 			SELECT j.id, j.server_id, j.phase, j.created_at
 			FROM jobs j
 			WHERE j.state = 'queued'
 			  AND ($2 = '' OR j.phase = $2)
+			  AND ($4::text[] IS NULL OR
+			       (SELECT s.protocol FROM servers s WHERE s.id = j.server_id) = ANY($4))
 			  AND NOT EXISTS (
 			      SELECT 1 FROM jobs sib
 			      WHERE sib.server_id = j.server_id AND sib.phase = j.phase
@@ -87,7 +90,13 @@ func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobP
 		RETURNING j.id, j.server_id, j.phase,
 		          (SELECT raw_uri FROM servers s WHERE s.id = j.server_id),
 		          (SELECT protocol FROM servers s WHERE s.id = j.server_id)`
-	rows, err := s.pool.Query(ctx, q, workerID, phaseFilter, max)
+	// Pass NULL (not an empty array) when there is no restriction, so the
+	// $4::text[] IS NULL branch short-circuits the protocol filter.
+	var protoArg any
+	if len(protocols) > 0 {
+		protoArg = protocols
+	}
+	rows, err := s.pool.Query(ctx, q, workerID, phaseFilter, max, protoArg)
 	if err != nil {
 		return nil, fmt.Errorf("claim jobs: %w", err)
 	}

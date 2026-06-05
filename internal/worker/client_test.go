@@ -31,7 +31,7 @@ func (f *apiFake) UpsertWorker(_ context.Context, w model.Worker) error {
 	return nil
 }
 func (f *apiFake) Heartbeat(_ context.Context, _, _ string) error { return nil }
-func (f *apiFake) ClaimJobs(_ context.Context, _ string, _ model.JobPhase, max int) ([]store.ClaimedJob, error) {
+func (f *apiFake) ClaimJobs(_ context.Context, _ string, _ model.JobPhase, max int, _ []string) ([]store.ClaimedJob, error) {
 	if len(f.jobs) > max {
 		return f.jobs[:max], nil
 	}
@@ -53,11 +53,11 @@ func (f *apiFake) MediaChecks(_ context.Context) ([]string, error) { return f.me
 // tokResolver authenticates one secret as one worker name.
 type tokResolver struct{ token, name string }
 
-func (r tokResolver) ResolveWorkerToken(_ context.Context, t string) (string, bool, error) {
+func (r tokResolver) ResolveWorkerToken(_ context.Context, t string) (string, []string, bool, error) {
 	if t == r.token {
-		return r.name, true, nil
+		return r.name, nil, true, nil
 	}
-	return "", false, nil
+	return "", nil, false, nil
 }
 
 func newServer(t *testing.T, st api.Store, token string) (*worker.Client, func()) {

@@ -98,6 +98,9 @@ func newTestStore(t *testing.T) *store.Store {
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
+	// Settings persist across tests (not truncated); reset the ones tests mutate
+	// so each engine test starts from an unrestricted, deterministic baseline.
+	_ = st.SetSetting(ctx, "protocols.enabled", []string{})
 	t.Cleanup(st.Close)
 	return st
 }

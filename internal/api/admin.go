@@ -33,9 +33,10 @@ type AdminStore interface {
 	SetSourceEnabled(ctx context.Context, id int64, enabled bool) error
 	AllSettings(ctx context.Context) (map[string]json.RawMessage, error)
 	SetSetting(ctx context.Context, key string, value any) error
-	CreateWorkerToken(ctx context.Context, name string) (string, error)
+	CreateWorkerToken(ctx context.Context, name string, protocols []string) (string, error)
 	ListWorkerTokens(ctx context.Context) ([]model.WorkerToken, error)
 	DeleteWorkerToken(ctx context.Context, id int64) (bool, error)
+	SetWorkerTokenProtocols(ctx context.Context, id int64, protocols []string) (bool, error)
 }
 
 // actions are the manual triggers the admin UI can fire. The coordinator maps
@@ -93,6 +94,7 @@ func (s *AdminServer) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/actions/{name}", s.handleAction)
 	mux.HandleFunc("GET /api/v1/worker-tokens", s.handleListWorkerTokens)
 	mux.HandleFunc("POST /api/v1/worker-tokens", s.handleCreateWorkerToken)
+	mux.HandleFunc("PUT /api/v1/worker-tokens/{id}", s.handleSetWorkerTokenProtocols)
 	mux.HandleFunc("DELETE /api/v1/worker-tokens/{id}", s.handleDeleteWorkerToken)
 	mux.HandleFunc("POST /api/v1/login", s.handleLogin)
 	if s.Token == "" {
@@ -125,6 +127,7 @@ type workerTokenView struct {
 	Enabled   bool       `json:"enabled"`
 	CreatedAt time.Time  `json:"created_at"`
 	LastUsed  *time.Time `json:"last_used"`
+	Protocols []string   `json:"protocols"`
 }
 
 func (s *AdminServer) handleListWorkerTokens(w http.ResponseWriter, r *http.Request) {
@@ -136,13 +139,18 @@ func (s *AdminServer) handleListWorkerTokens(w http.ResponseWriter, r *http.Requ
 	}
 	views := make([]workerTokenView, len(tokens))
 	for i, t := range tokens {
-		views[i] = workerTokenView{ID: t.ID, Name: t.Name, Enabled: t.Enabled, CreatedAt: t.CreatedAt, LastUsed: t.LastUsed}
+		views[i] = workerTokenView{
+			ID: t.ID, Name: t.Name, Enabled: t.Enabled,
+			CreatedAt: t.CreatedAt, LastUsed: t.LastUsed, Protocols: t.Protocols,
+		}
 	}
 	writeJSON(w, http.StatusOK, views)
 }
 
 type createTokenReq struct {
 	Name string `json:"name"`
+	// Protocols is the optional per-worker allow-list (empty = all protocols).
+	Protocols []string `json:"protocols"`
 }
 
 // handleCreateWorkerToken mints a token for a worker name and returns the secret
@@ -153,7 +161,7 @@ func (s *AdminServer) handleCreateWorkerToken(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	token, err := s.Store.CreateWorkerToken(r.Context(), req.Name)
+	token, err := s.Store.CreateWorkerToken(r.Context(), req.Name, req.Protocols)
 	if errors.Is(err, store.ErrWorkerNameTaken) {
 		writeErr(w, http.StatusConflict, "a token for that worker name already exists")
 		return
@@ -163,6 +171,36 @@ func (s *AdminServer) handleCreateWorkerToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name, "token": token})
+}
+
+type setProtocolsReq struct {
+	Protocols []string `json:"protocols"`
+}
+
+// handleSetWorkerTokenProtocols replaces a worker's protocol allow-list (empty =
+// all protocols).
+func (s *AdminServer) handleSetWorkerTokenProtocols(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req setProtocolsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	ok, err := s.Store.SetWorkerTokenProtocols(r.Context(), id, req.Protocols)
+	if err != nil {
+		s.logf("api: set worker token protocols %d: %v", id, err)
+		writeErr(w, http.StatusInternalServerError, "update token failed")
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "token not found")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // handleDeleteWorkerToken revokes a token by id.

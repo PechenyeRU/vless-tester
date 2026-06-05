@@ -93,6 +93,10 @@ type WorkerToken struct {
 	Enabled   bool
 	CreatedAt time.Time
 	LastUsed  *time.Time
+	// Protocols is the optional per-worker allow-list of protocol types this
+	// worker may test (nil/empty = all). Lets a worker without UDP support be
+	// limited to TCP-only protocols.
+	Protocols []string
 }
 
 // Capacity describes how much work a worker can take.

@@ -21,9 +21,10 @@ type fakeStore struct {
 	heartbeat map[string]string
 	claimOut  []store.ClaimedJob
 	claimArgs struct {
-		worker string
-		phase  model.JobPhase
-		max    int
+		worker    string
+		phase     model.JobPhase
+		max       int
+		protocols []string
 	}
 	// owned holds job ids this worker legitimately claimed; RecordResult/NackJobs
 	// only act on those, mirroring the real ownership check.
@@ -51,10 +52,11 @@ func (f *fakeStore) Heartbeat(_ context.Context, workerID, status string) error 
 	return nil
 }
 
-func (f *fakeStore) ClaimJobs(_ context.Context, workerID string, phase model.JobPhase, max int) ([]store.ClaimedJob, error) {
+func (f *fakeStore) ClaimJobs(_ context.Context, workerID string, phase model.JobPhase, max int, protocols []string) ([]store.ClaimedJob, error) {
 	f.claimArgs.worker = workerID
 	f.claimArgs.phase = phase
 	f.claimArgs.max = max
+	f.claimArgs.protocols = protocols
 	return f.claimOut, nil
 }
 
@@ -137,14 +139,18 @@ func TestRegisterGeneratesMnemonic(t *testing.T) {
 	}
 }
 
-// fakeTokens resolves exactly one secret to one worker name.
-type fakeTokens struct{ secret, name string }
+// fakeTokens resolves exactly one secret to one worker name (with optional
+// per-worker protocols).
+type fakeTokens struct {
+	secret, name string
+	protocols    []string
+}
 
-func (f fakeTokens) ResolveWorkerToken(_ context.Context, token string) (string, bool, error) {
+func (f fakeTokens) ResolveWorkerToken(_ context.Context, token string) (string, []string, bool, error) {
 	if token == f.secret {
-		return f.name, true, nil
+		return f.name, f.protocols, true, nil
 	}
-	return "", false, nil
+	return "", nil, false, nil
 }
 
 func TestPerWorkerTokenAuthAndIdentity(t *testing.T) {

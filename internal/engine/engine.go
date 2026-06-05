@@ -153,8 +153,19 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 	if err != nil {
 		return 0, false, fmt.Errorf("engine: create batch: %w", err)
 	}
+	// Globally disabled protocols are skipped entirely: no jobs are enqueued, so
+	// they never get checked (re-enabling includes them on the next cycle).
+	enabled, err := e.Store.EnabledProtocols(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("engine: enabled protocols: %w", err)
+	}
+	allow := protocolAllowed(enabled)
+
 	n := e.fanout(ctx)
 	for _, srv := range servers {
+		if !allow(string(srv.Protocol)) {
+			continue
+		}
 		id, err := e.Store.UpsertServer(ctx, srv)
 		if err != nil {
 			return 0, false, fmt.Errorf("engine: upsert server: %w", err)
@@ -164,6 +175,19 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 		}
 	}
 	return batchID, true, nil
+}
+
+// protocolAllowed returns a membership predicate for an allow-list; a nil/empty
+// list allows everything.
+func protocolAllowed(enabled []string) func(string) bool {
+	if len(enabled) == 0 {
+		return func(string) bool { return true }
+	}
+	set := make(map[string]bool, len(enabled))
+	for _, p := range enabled {
+		set[p] = true
+	}
+	return func(p string) bool { return set[p] }
 }
 
 // ReconcileResult reports what one reconcile pass did.

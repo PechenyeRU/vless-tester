@@ -48,7 +48,7 @@ func TestRecordResultStoresChecks(t *testing.T) {
 	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseChecks); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseChecks, 1)
+	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseChecks, 1, nil)
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("claim got %d err=%v", len(claimed), err)
 	}

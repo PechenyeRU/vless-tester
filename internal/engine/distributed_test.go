@@ -34,7 +34,7 @@ func newDistributedEngine(st *store.Store, approval engine.Approval, fanout int)
 func workerPass(t *testing.T, st *store.Store, worker string, latency int, dl float64) int {
 	t.Helper()
 	ctx := context.Background()
-	claimed, err := st.ClaimJobs(ctx, worker, model.PhaseFunnel, 100)
+	claimed, err := st.ClaimJobs(ctx, worker, model.PhaseFunnel, 100, nil)
 	if err != nil {
 		t.Fatalf("claim for %s: %v", worker, err)
 	}
@@ -85,6 +85,27 @@ func TestDispatchCycleFanoutAndGuard(t *testing.T) {
 	}
 	if again {
 		t.Fatal("dispatch must be refused while a cycle is in progress")
+	}
+}
+
+func TestDispatchSkipsDisabledProtocols(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	mustWorkerE(t, st, "w1")
+
+	// Globally allow only vless; the trojan server must not be enqueued. Settings
+	// persist across tests, so restore "all" afterwards to keep other tests clean.
+	if err := st.SetSetting(ctx, "protocols.enabled", []string{"vless"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.SetSetting(ctx, "protocols.enabled", []string{}) })
+	eng := newDistributedEngine(st, engine.Approval{MaxLatencyMs: 60000, RequiredWorkers: 1}, 1)
+	if _, dispatched, err := eng.DispatchCycle(ctx, twoServers(t)); err != nil || !dispatched {
+		t.Fatalf("dispatch: dispatched=%v err=%v", dispatched, err)
+	}
+	queued, _ := st.CountJobs(ctx, model.JobQueued)
+	if queued != 1 {
+		t.Fatalf("queued = %d, want 1 (only the vless server)", queued)
 	}
 }
 
@@ -146,7 +167,7 @@ func TestReconcileRequeuesDeadWorker(t *testing.T) {
 	}
 
 	// w1 claims but dies without reporting.
-	dead, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 100)
+	dead, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 100, nil)
 	if len(dead) == 0 {
 		t.Fatal("w1 claimed nothing")
 	}

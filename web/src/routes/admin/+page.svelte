@@ -3,6 +3,9 @@
 	import { api } from '$lib/api.js';
 	import { ago } from '$lib/format.js';
 
+	// Protocol types the platform understands (matches model.Protocol).
+	const PROTOCOLS = ['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hysteria', 'tuic', 'anytls', 'socks'];
+
 	let sources = $state([]);
 	let settings = $state({}); // key -> string (raw JSON text, editable)
 	let tokens = $state([]);
@@ -10,9 +13,16 @@
 	let notice = $state('');
 	let newSource = $state({ kind: 'subscription_url', location: '' });
 	let newTokenName = $state('');
+	// Per-worker protocol selection for the new token (empty = all).
+	let newTokenProtocols = $state(new Set());
 	// The freshly minted secret, shown once after creation.
 	let freshToken = $state(null); // { name, token }
 	let busyAction = $state('');
+	// Inline protocol editor state: token id -> Set of selected protocols.
+	let editingToken = $state(null);
+	let editProtocols = $state(new Set());
+	// Global enabled-protocols set (disabling one excludes it from all checks).
+	let globalProtocols = $state(new Set());
 
 	async function load() {
 		error = '';
@@ -27,9 +37,25 @@
 			settings = Object.fromEntries(
 				Object.entries(sett || {}).map(([k, v]) => [k, JSON.stringify(v)])
 			);
+			const enabled = (sett && sett['protocols.enabled']) || PROTOCOLS;
+			globalProtocols = new Set(enabled);
 		} catch (e) {
 			error = e.message;
 		}
+	}
+
+	// toggleIn returns a new Set with value toggled (Svelte 5 reactivity needs a
+	// fresh reference).
+	function toggleIn(set, value) {
+		const next = new Set(set);
+		next.has(value) ? next.delete(value) : next.add(value);
+		return next;
+	}
+
+	// normalizeProtocols treats "all selected" or "none" as no restriction (empty).
+	function normalizeProtocols(set) {
+		if (set.size === 0 || set.size === PROTOCOLS.length) return [];
+		return PROTOCOLS.filter((p) => set.has(p));
 	}
 
 	async function createToken() {
@@ -37,9 +63,37 @@
 		const name = newTokenName.trim();
 		if (!name) return;
 		try {
-			freshToken = await api.createWorkerToken(name);
+			freshToken = await api.createWorkerToken(name, normalizeProtocols(newTokenProtocols));
 			newTokenName = '';
+			newTokenProtocols = new Set();
 			await load();
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	function startEdit(tok) {
+		editingToken = tok.id;
+		editProtocols = new Set(tok.protocols && tok.protocols.length ? tok.protocols : PROTOCOLS);
+	}
+
+	async function saveEdit(tok) {
+		error = '';
+		try {
+			await api.setWorkerTokenProtocols(tok.id, normalizeProtocols(editProtocols));
+			editingToken = null;
+			await load();
+			flash(`Updated ${tok.name}`);
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function saveGlobalProtocols() {
+		error = '';
+		try {
+			await api.putSettings({ 'protocols.enabled': PROTOCOLS.filter((p) => globalProtocols.has(p)) });
+			flash('Enabled protocols saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -172,46 +226,123 @@
 		<div class="overflow-x-auto mt-2">
 			<table class="table table-sm">
 				<thead>
-					<tr><th>Name</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr>
+					<tr><th>Name</th><th>Protocols</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr>
 				</thead>
 				<tbody>
 					{#each tokens as tok}
 						<tr class="hover">
-							<td class="mono font-medium">{tok.name}</td>
-							<td class="text-base-content/60">{ago(tok.created_at)}</td>
-							<td class="text-base-content/60">{tok.last_used ? ago(tok.last_used) : 'never'}</td>
+							<td class="mono font-medium align-top">{tok.name}</td>
 							<td>
+								{#if editingToken === tok.id}
+									<div class="flex flex-wrap gap-x-3 gap-y-1 max-w-md">
+										{#each PROTOCOLS as p}
+											<label class="label cursor-pointer gap-1 py-0">
+												<input
+													type="checkbox"
+													class="checkbox checkbox-xs"
+													checked={editProtocols.has(p)}
+													onchange={() => (editProtocols = toggleIn(editProtocols, p))}
+												/>
+												<span class="text-xs mono">{p}</span>
+											</label>
+										{/each}
+									</div>
+								{:else if tok.protocols && tok.protocols.length}
+									<div class="flex flex-wrap gap-1">
+										{#each tok.protocols as p}<span class="badge badge-ghost badge-sm mono">{p}</span>{/each}
+									</div>
+								{:else}
+									<span class="text-base-content/50 text-sm">all</span>
+								{/if}
+							</td>
+							<td class="text-base-content/60 align-top">{ago(tok.created_at)}</td>
+							<td class="text-base-content/60 align-top">{tok.last_used ? ago(tok.last_used) : 'never'}</td>
+							<td class="align-top">
 								<span class="badge badge-sm {tok.enabled ? 'badge-success' : 'badge-ghost'}">
 									{tok.enabled ? 'active' : 'disabled'}
 								</span>
 							</td>
-							<td><button class="btn btn-xs btn-error btn-outline" onclick={() => revokeToken(tok)}>Revoke</button></td>
+							<td class="align-top">
+								<div class="flex gap-1">
+									{#if editingToken === tok.id}
+										<button class="btn btn-xs btn-primary" onclick={() => saveEdit(tok)}>Save</button>
+										<button class="btn btn-xs" onclick={() => (editingToken = null)}>Cancel</button>
+									{:else}
+										<button class="btn btn-xs" onclick={() => startEdit(tok)}>Protocols</button>
+										<button class="btn btn-xs btn-error btn-outline" onclick={() => revokeToken(tok)}>Revoke</button>
+									{/if}
+								</div>
+							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="5" class="text-base-content/60 text-center py-4">No worker tokens yet.</td></tr>
+						<tr><td colspan="6" class="text-base-content/60 text-center py-4">No worker tokens yet.</td></tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
 
 		<form
-			class="flex flex-wrap items-end gap-3 mt-4 pt-4 border-t border-base-300"
+			class="mt-4 pt-4 border-t border-base-300"
 			onsubmit={(e) => {
 				e.preventDefault();
 				createToken();
 			}}
 		>
-			<label class="form-control flex-1 min-w-60">
-				<span class="label-text mb-1">Worker name</span>
-				<input
-					class="input input-bordered input-sm w-full"
-					bind:value={newTokenName}
-					placeholder="home-vps"
-					pattern="[A-Za-z0-9-]+"
-				/>
-			</label>
-			<button class="btn btn-primary btn-sm" type="submit">Create token</button>
+			<div class="flex flex-wrap items-end gap-3">
+				<label class="form-control flex-1 min-w-60">
+					<span class="label-text mb-1">Worker name</span>
+					<input
+						class="input input-bordered input-sm w-full"
+						bind:value={newTokenName}
+						placeholder="home-vps"
+						pattern="[A-Za-z0-9-]+"
+					/>
+				</label>
+				<button class="btn btn-primary btn-sm" type="submit">Create token</button>
+			</div>
+			<div class="mt-2">
+				<span class="label-text">Allowed protocols <span class="text-base-content/50">(none selected = all)</span></span>
+				<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+					{#each PROTOCOLS as p}
+						<label class="label cursor-pointer gap-1 py-0">
+							<input
+								type="checkbox"
+								class="checkbox checkbox-xs"
+								checked={newTokenProtocols.has(p)}
+								onchange={() => (newTokenProtocols = toggleIn(newTokenProtocols, p))}
+							/>
+							<span class="text-xs mono">{p}</span>
+						</label>
+					{/each}
+				</div>
+			</div>
 		</form>
+	</div>
+</div>
+
+<div class="card bg-base-100 shadow mb-6">
+	<div class="card-body">
+		<h2 class="card-title text-lg">Protocols (global)</h2>
+		<p class="text-sm text-base-content/60">
+			Unchecking a protocol excludes it from every check, fleet-wide. Per-worker limits above are
+			applied on top of this.
+		</p>
+		<div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+			{#each PROTOCOLS as p}
+				<label class="label cursor-pointer gap-1 py-0">
+					<input
+						type="checkbox"
+						class="checkbox checkbox-sm"
+						checked={globalProtocols.has(p)}
+						onchange={() => (globalProtocols = toggleIn(globalProtocols, p))}
+					/>
+					<span class="text-sm mono">{p}</span>
+				</label>
+			{/each}
+		</div>
+		<div class="mt-3">
+			<button class="btn btn-primary btn-sm" onclick={saveGlobalProtocols}>Save protocols</button>
+		</div>
 	</div>
 </div>
 

@@ -31,7 +31,7 @@ const (
 type Store interface {
 	UpsertWorker(ctx context.Context, w model.Worker) error
 	Heartbeat(ctx context.Context, workerID, status string) error
-	ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int) ([]store.ClaimedJob, error)
+	ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int, protocols []string) ([]store.ClaimedJob, error)
 	RecordResult(ctx context.Context, workerID string, jobID int64, r model.TestRun) (bool, error)
 	NackJobs(ctx context.Context, workerID string, jobIDs []int64) (int64, error)
 	// MediaChecks returns the media-unlock platforms to probe, or nil when media
@@ -39,10 +39,11 @@ type Store interface {
 	MediaChecks(ctx context.Context) ([]string, error)
 }
 
-// WorkerTokenResolver maps a presented bearer secret to a worker identity. The
-// real *store.Store satisfies it; tests inject a fake.
+// WorkerTokenResolver maps a presented bearer secret to a worker identity and
+// its per-worker protocol allow-list. The real *store.Store satisfies it; tests
+// inject a fake.
 type WorkerTokenResolver interface {
-	ResolveWorkerToken(ctx context.Context, token string) (name string, ok bool, err error)
+	ResolveWorkerToken(ctx context.Context, token string) (name string, protocols []string, ok bool, err error)
 }
 
 // Server serves the worker control plane.
@@ -60,28 +61,39 @@ type Server struct {
 	Logf func(format string, args ...any)
 }
 
-// workerIdentityKey carries the authenticated worker name (from a per-worker
-// token) through the request context.
+// workerIdentity carries the authenticated worker name and its per-worker
+// protocol allow-list (from a per-worker token) through the request context.
+type workerIdentity struct {
+	name      string
+	protocols []string
+}
+
 type ctxKey int
 
 const workerIdentityKey ctxKey = iota
 
-func withIdentity(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, workerIdentityKey, name)
+func withIdentity(ctx context.Context, id workerIdentity) context.Context {
+	return context.WithValue(ctx, workerIdentityKey, id)
 }
 
-func identityFrom(ctx context.Context) string {
-	v, _ := ctx.Value(workerIdentityKey).(string)
+func identityFrom(ctx context.Context) workerIdentity {
+	v, _ := ctx.Value(workerIdentityKey).(workerIdentity)
 	return v
 }
 
 // authWorkerID returns the token-authenticated identity when present, otherwise
-// the client-supplied fallback (legacy shared-token path).
+// the client-supplied fallback (dev no-auth path).
 func authWorkerID(r *http.Request, fallback string) string {
-	if id := identityFrom(r.Context()); id != "" {
+	if id := identityFrom(r.Context()).name; id != "" {
 		return id
 	}
 	return fallback
+}
+
+// authWorkerProtocols returns the authenticated worker's protocol allow-list
+// (nil = no restriction).
+func authWorkerProtocols(r *http.Request) []string {
+	return identityFrom(r.Context()).protocols
 }
 
 func bearerToken(r *http.Request) string {
@@ -124,14 +136,15 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 		}
 		bearer := bearerToken(r)
 		if bearer != "" {
-			name, ok, err := s.Tokens.ResolveWorkerToken(r.Context(), bearer)
+			name, protocols, ok, err := s.Tokens.ResolveWorkerToken(r.Context(), bearer)
 			if err != nil {
 				s.logf("api: resolve worker token: %v", err)
 				writeErr(w, http.StatusInternalServerError, "auth error")
 				return
 			}
 			if ok {
-				next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), name)))
+				id := workerIdentity{name: name, protocols: protocols}
+				next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), id)))
 				return
 			}
 		}
@@ -239,7 +252,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	case n > maxClaim:
 		n = maxClaim
 	}
-	jobs, err := s.Store.ClaimJobs(r.Context(), workerID, model.JobPhase(req.Phase), n)
+	jobs, err := s.Store.ClaimJobs(r.Context(), workerID, model.JobPhase(req.Phase), n, authWorkerProtocols(r))
 	if err != nil {
 		s.logf("api: claim %s: %v", workerID, err)
 		writeErr(w, http.StatusInternalServerError, "claim failed")
