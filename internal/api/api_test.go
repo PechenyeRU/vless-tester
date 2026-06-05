@@ -94,7 +94,7 @@ func do(t *testing.T, s handlerProvider, method, path, token, body string) *http
 }
 
 func TestAuth(t *testing.T) {
-	s := &Server{Store: newFake(), Token: "secret"}
+	s := &Server{Store: newFake(), Tokens: fakeTokens{secret: "wt_good", name: "probe-1"}}
 
 	if rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "", `{}`); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing token: want 401, got %d", rec.Code)
@@ -102,13 +102,13 @@ func TestAuth(t *testing.T) {
 	if rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "wrong", `{}`); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong token: want 401, got %d", rec.Code)
 	}
-	if rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "secret", `{}`); rec.Code != http.StatusOK {
-		t.Fatalf("correct token: want 200, got %d", rec.Code)
+	if rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "wt_good", `{}`); rec.Code != http.StatusOK {
+		t.Fatalf("valid token: want 200, got %d", rec.Code)
 	}
 }
 
-func TestAuthDisabledWhenNoToken(t *testing.T) {
-	s := &Server{Store: newFake()} // no token: dev mode, open
+func TestAuthDisabledWhenNoTokensConfigured(t *testing.T) {
+	s := &Server{Store: newFake()} // no resolver: dev mode, open
 	if rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "", `{}`); rec.Code != http.StatusOK {
 		t.Fatalf("dev mode: want 200, got %d", rec.Code)
 	}
@@ -132,6 +132,44 @@ func TestRegisterGeneratesMnemonic(t *testing.T) {
 	}
 	if f.workers[resp.ID].Capacity.Latency != 100 {
 		t.Fatalf("capacity not stored: %+v", f.workers[resp.ID].Capacity)
+	}
+}
+
+// fakeTokens resolves exactly one secret to one worker name.
+type fakeTokens struct{ secret, name string }
+
+func (f fakeTokens) ResolveWorkerToken(_ context.Context, token string) (string, bool, error) {
+	if token == f.secret {
+		return f.name, true, nil
+	}
+	return "", false, nil
+}
+
+func TestPerWorkerTokenAuthAndIdentity(t *testing.T) {
+	f := newFake()
+	s := &Server{Store: f, Tokens: fakeTokens{secret: "wt_abc", name: "home-vps"}}
+
+	// An unknown token is rejected.
+	if rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "nope", `{}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown token: want 401, got %d", rec.Code)
+	}
+
+	// The valid token authenticates and pins identity: even a forged body id is
+	// ignored in favor of the token's worker name.
+	rec := do(t, s, http.MethodPost, "/api/v1/workers/register", "wt_abc", `{"id":"attacker","capacity":{"latency":50}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid token: want 200, got %d", rec.Code)
+	}
+	var resp registerResp
+	mustJSON(t, rec, &resp)
+	if resp.ID != "home-vps" {
+		t.Fatalf("identity = %q, want home-vps (token name wins)", resp.ID)
+	}
+	if _, ok := f.workers["home-vps"]; !ok {
+		t.Fatal("worker not stored under token name")
+	}
+	if _, ok := f.workers["attacker"]; ok {
+		t.Fatal("client-supplied id must be ignored under a per-worker token")
 	}
 }
 

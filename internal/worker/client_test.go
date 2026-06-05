@@ -48,33 +48,44 @@ func (f *apiFake) NackJobs(_ context.Context, _ string, ids []int64) (int64, err
 	return int64(len(ids)), nil
 }
 
+// tokResolver authenticates one secret as one worker name.
+type tokResolver struct{ token, name string }
+
+func (r tokResolver) ResolveWorkerToken(_ context.Context, t string) (string, bool, error) {
+	if t == r.token {
+		return r.name, true, nil
+	}
+	return "", false, nil
+}
+
 func newServer(t *testing.T, st api.Store, token string) (*worker.Client, func()) {
 	t.Helper()
-	srv := httptest.NewServer((&api.Server{Store: st, Token: token}).Handler())
+	srv := httptest.NewServer((&api.Server{Store: st, Tokens: tokResolver{token: token, name: "probe-1"}}).Handler())
 	c := &worker.Client{BaseURL: srv.URL, Token: token, HTTP: srv.Client()}
 	return c, srv.Close
 }
 
-func TestClientRegisterAssignsMnemonic(t *testing.T) {
+func TestClientRegisterUsesTokenIdentity(t *testing.T) {
 	f := newAPIFake()
 	c, closeFn := newServer(t, f, "secret")
 	defer closeFn()
 
+	// The worker sends no id; its identity comes from the token (name "probe-1").
 	id, err := c.Register(context.Background(), "", model.Capacity{Latency: 100})
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	if id == "" {
-		t.Fatal("expected an assigned id")
+	if id != "probe-1" {
+		t.Fatalf("identity = %q, want probe-1 (token name)", id)
 	}
-	if _, ok := f.registered[id]; !ok {
-		t.Fatalf("worker %q not stored", id)
+	if _, ok := f.registered["probe-1"]; !ok {
+		t.Fatal("worker not stored under token name")
 	}
 }
 
 func TestClientRegisterRejectsBadToken(t *testing.T) {
 	f := newAPIFake()
-	srv := httptest.NewServer((&api.Server{Store: f, Token: "secret"}).Handler())
+	srv := httptest.NewServer((&api.Server{Store: f, Tokens: tokResolver{token: "secret", name: "probe-1"}}).Handler())
 	defer srv.Close()
 	c := &worker.Client{BaseURL: srv.URL, Token: "wrong", HTTP: srv.Client()}
 
@@ -127,7 +138,7 @@ func TestClientClaimReportNack(t *testing.T) {
 
 func TestClientHeartbeat(t *testing.T) {
 	f := newAPIFake()
-	c, closeFn := newServer(t, f, "")
+	c, closeFn := newServer(t, f, "secret")
 	defer closeFn()
 	if err := c.Heartbeat(context.Background(), "w1", "busy", model.Capacity{Speed: 2}); err != nil {
 		t.Fatalf("heartbeat: %v", err)

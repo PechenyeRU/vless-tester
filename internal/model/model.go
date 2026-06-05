@@ -84,6 +84,17 @@ type Worker struct {
 	LastSeen time.Time
 }
 
+// WorkerToken is a per-worker control-plane credential, created and revoked from
+// the admin panel. The token's Name is the worker's identity; the secret itself
+// is never stored or returned after creation (only its sha256 lives in the DB).
+type WorkerToken struct {
+	ID        int64
+	Name      string
+	Enabled   bool
+	CreatedAt time.Time
+	LastUsed  *time.Time
+}
+
 // Capacity describes how much work a worker can take.
 type Capacity struct {
 	Latency int     `json:"latency"` // max concurrent latency probes

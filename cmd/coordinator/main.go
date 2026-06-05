@@ -141,8 +141,8 @@ func run() error {
 		})
 	}
 
-	// HTTP surface: the untrusted worker control plane (WORKER_TOKEN) and the
-	// admin/read plane for the dashboard (ADMIN_TOKEN), two distinct trust
+	// HTTP surface: the untrusted worker control plane (per-worker tokens) and
+	// the admin/read plane for the dashboard (ADMIN_TOKEN), two distinct trust
 	// domains served on one listener.
 	srv := &http.Server{
 		Addr:              apiAddr(),
@@ -175,11 +175,17 @@ func run() error {
 // cannot reach the mutating admin endpoints. Admin actions map to scheduler
 // triggers, the single source of out-of-band runs.
 func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
-	worker := (&api.Server{Store: st, Token: os.Getenv("WORKER_TOKEN"), Logf: log.Printf}).Handler()
+	worker := (&api.Server{Store: st, Tokens: st, Logf: log.Printf}).Handler()
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
 	admin := (&api.AdminServer{
-		Store: st,
-		Token: os.Getenv("ADMIN_TOKEN"),
-		Logf:  log.Printf,
+		Store:    st,
+		Token:    os.Getenv("ADMIN_TOKEN"),
+		Username: adminUser,
+		Password: os.Getenv("ADMIN_PASSWORD"),
+		Logf:     log.Printf,
 		Action: func(name string) error {
 			switch name {
 			case "refresh-sources", "retest":
@@ -208,6 +214,9 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
 	mux.Handle("/api/v1/sources", admin)
 	mux.Handle("/api/v1/settings", admin)
 	mux.Handle("/api/v1/actions/", admin)
+	mux.Handle("/api/v1/worker-tokens", admin)
+	mux.Handle("/api/v1/worker-tokens/", admin)
+	mux.Handle("/api/v1/login", admin)
 	// Embedded SvelteKit dashboard at the root, below the API planes.
 	mux.Handle("/", webui.Handler())
 	return mux

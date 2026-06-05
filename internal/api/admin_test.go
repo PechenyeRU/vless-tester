@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/store"
@@ -25,9 +27,12 @@ type fakeAdminStore struct {
 	stats       store.Stats
 	sources     []model.Source
 	settings    map[string]json.RawMessage
-	upserted    []model.Source
-	toggled     map[int64]bool
-	setSettings map[string]json.RawMessage
+	upserted     []model.Source
+	toggled      map[int64]bool
+	setSettings  map[string]json.RawMessage
+	workerTokens []model.WorkerToken
+	createdToken string
+	deletedToken int64
 }
 
 func newAdminFake() *fakeAdminStore {
@@ -74,6 +79,17 @@ func (f *fakeAdminStore) SetSetting(_ context.Context, key string, value any) er
 	f.setSettings[key] = value.(json.RawMessage)
 	return nil
 }
+func (f *fakeAdminStore) CreateWorkerToken(_ context.Context, name string) (string, error) {
+	f.createdToken = name
+	return "wt_fake-secret", nil
+}
+func (f *fakeAdminStore) ListWorkerTokens(_ context.Context) ([]model.WorkerToken, error) {
+	return f.workerTokens, nil
+}
+func (f *fakeAdminStore) DeleteWorkerToken(_ context.Context, id int64) (bool, error) {
+	f.deletedToken = id
+	return true, nil
+}
 
 func TestAdminAuth(t *testing.T) {
 	s := &AdminServer{Store: newAdminFake(), Token: "admin"}
@@ -82,6 +98,80 @@ func TestAdminAuth(t *testing.T) {
 	}
 	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "admin", ``); rec.Code != http.StatusOK {
 		t.Fatalf("correct token: want 200, got %d", rec.Code)
+	}
+}
+
+func TestAdminLogin(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Token: "secret-token", Username: "admin", Password: "hunter2"}
+
+	// Valid credentials return the bearer token.
+	rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"admin","password":"hunter2"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid login: want 200, got %d (%s)", rec.Code, rec.Body)
+	}
+	var out struct{ Token string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+	if out.Token != "secret-token" {
+		t.Fatalf("login token = %q, want secret-token", out.Token)
+	}
+
+	// Wrong password and wrong username are both rejected.
+	if rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"admin","password":"nope"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad password: want 401, got %d", rec.Code)
+	}
+	if rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"root","password":"hunter2"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad username: want 401, got %d", rec.Code)
+	}
+}
+
+func TestAdminLoginPasswordFallsBackToToken(t *testing.T) {
+	// With no explicit password, the token doubles as the password.
+	s := &AdminServer{Store: newAdminFake(), Token: "the-token", Username: "admin"}
+	if rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"admin","password":"the-token"}`); rec.Code != http.StatusOK {
+		t.Fatalf("token-as-password: want 200, got %d", rec.Code)
+	}
+}
+
+func TestAdminWorkerTokenCRUD(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f, Token: "admin"}
+
+	// Create returns the secret once.
+	rec := do(t, s, http.MethodPost, "/api/v1/worker-tokens", "admin", `{"name":"home-vps"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: want 201, got %d (%s)", rec.Code, rec.Body)
+	}
+	var created struct{ Name, Token string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "home-vps" || created.Token == "" {
+		t.Fatalf("unexpected create response: %+v", created)
+	}
+	if f.createdToken != "home-vps" {
+		t.Fatalf("store not asked to create home-vps, got %q", f.createdToken)
+	}
+
+	// List exposes metadata but not the secret.
+	now := time.Now()
+	f.workerTokens = []model.WorkerToken{{ID: 7, Name: "home-vps", Enabled: true, CreatedAt: now}}
+	rec = do(t, s, http.MethodGet, "/api/v1/worker-tokens", "admin", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: want 200, got %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"name":"home-vps"`) || strings.Contains(body, "token_hash") || strings.Contains(body, `"token"`) {
+		t.Fatalf("list leaked or malformed: %s", body)
+	}
+
+	// Delete revokes by id.
+	rec = do(t, s, http.MethodDelete, "/api/v1/worker-tokens/7", "admin", ``)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: want 204, got %d", rec.Code)
+	}
+	if f.deletedToken != 7 {
+		t.Fatalf("store not asked to delete id 7, got %d", f.deletedToken)
 	}
 }
 

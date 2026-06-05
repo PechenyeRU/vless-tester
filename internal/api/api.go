@@ -1,15 +1,17 @@
 // Package api is the coordinator's worker control plane: a small REST/JSON
 // surface that lets untrusted, pull-based workers register, heartbeat, claim
-// jobs, report results, and release work. All endpoints sit behind a static
-// bearer token (DESIGN 6 and 11). The handlers are deliberately thin: every
-// trust decision (job ownership, plausibility bounds, fan-out) lives in the
-// store/engine, so a malicious worker cannot reach past this layer.
+// jobs, report results, and release work. Each worker authenticates with its own
+// token, minted in the admin panel; the token's name is the worker's identity
+// (DESIGN 6 and 11). The handlers are deliberately thin: every trust decision
+// (job ownership, plausibility bounds, fan-out) lives in the store/engine, so a
+// malicious worker cannot reach past this layer.
 package api
 
 import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/whitedns/vless-tester/internal/ident"
 	"github.com/whitedns/vless-tester/internal/model"
@@ -34,17 +36,58 @@ type Store interface {
 	NackJobs(ctx context.Context, workerID string, jobIDs []int64) (int64, error)
 }
 
+// WorkerTokenResolver maps a presented bearer secret to a worker identity. The
+// real *store.Store satisfies it; tests inject a fake.
+type WorkerTokenResolver interface {
+	ResolveWorkerToken(ctx context.Context, token string) (name string, ok bool, err error)
+}
+
 // Server serves the worker control plane.
 type Server struct {
 	Store Store
-	// Token is the shared bearer secret. When empty, auth is disabled (intended
-	// for local development only); Handler logs a warning in that case.
-	Token string
+	// Tokens resolves per-worker tokens minted from the admin panel: a matching
+	// bearer authenticates the request AS that worker, and the token's name is the
+	// worker's identity (it overrides any client-sent id). When nil, auth is
+	// disabled (local development only) and Handler logs a warning.
+	Tokens WorkerTokenResolver
 	// Bounds caps implausible worker-reported numbers; the zero value uses
 	// sensible defaults.
 	Bounds Bounds
 	// Logf is an optional logger; nil discards.
 	Logf func(format string, args ...any)
+}
+
+// workerIdentityKey carries the authenticated worker name (from a per-worker
+// token) through the request context.
+type ctxKey int
+
+const workerIdentityKey ctxKey = iota
+
+func withIdentity(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, workerIdentityKey, name)
+}
+
+func identityFrom(ctx context.Context) string {
+	v, _ := ctx.Value(workerIdentityKey).(string)
+	return v
+}
+
+// authWorkerID returns the token-authenticated identity when present, otherwise
+// the client-supplied fallback (legacy shared-token path).
+func authWorkerID(r *http.Request, fallback string) string {
+	if id := identityFrom(r.Context()); id != "" {
+		return id
+	}
+	return fallback
+}
+
+func bearerToken(r *http.Request) string {
+	const p = "Bearer "
+	h := r.Header.Get("Authorization")
+	if strings.HasPrefix(h, p) {
+		return h[len(p):]
+	}
+	return ""
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -61,21 +104,35 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/jobs/claim", s.handleClaim)
 	mux.HandleFunc("/api/v1/jobs/results", s.handleResults)
 	mux.HandleFunc("/api/v1/jobs/nack", s.handleNack)
-	if s.Token == "" {
-		s.logf("api: WARNING no bearer token configured, control plane is unauthenticated")
+	if s.Tokens == nil {
+		s.logf("api: WARNING no worker tokens configured, control plane is unauthenticated")
 	}
 	return s.withAuth(mux)
 }
 
-// withAuth enforces the bearer token on every request. With no token configured
-// it passes through (dev mode).
+// withAuth authenticates each request against the per-worker tokens, resolving
+// the bearer to a worker identity carried in the context. With no resolver
+// configured, requests pass through (local development only).
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Token != "" && r.Header.Get("Authorization") != "Bearer "+s.Token {
-			writeErr(w, http.StatusUnauthorized, "unauthorized")
+		if s.Tokens == nil {
+			next.ServeHTTP(w, r) // dev mode: no auth configured
 			return
 		}
-		next.ServeHTTP(w, r)
+		bearer := bearerToken(r)
+		if bearer != "" {
+			name, ok, err := s.Tokens.ResolveWorkerToken(r.Context(), bearer)
+			if err != nil {
+				s.logf("api: resolve worker token: %v", err)
+				writeErr(w, http.StatusInternalServerError, "auth error")
+				return
+			}
+			if ok {
+				next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), name)))
+				return
+			}
+		}
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
 	})
 }
 
@@ -95,7 +152,9 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	id := req.ID
+	// A per-worker token fixes the identity from the panel; otherwise fall back
+	// to the client-supplied id, generating a mnemonic when blank.
+	id := authWorkerID(r, req.ID)
 	if id == "" {
 		id = ident.Mnemonic()
 	}
@@ -122,7 +181,8 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.ID == "" {
+	id := authWorkerID(r, req.ID)
+	if id == "" {
 		writeErr(w, http.StatusBadRequest, "id is required")
 		return
 	}
@@ -130,8 +190,8 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "idle"
 	}
-	if err := s.Store.Heartbeat(r.Context(), req.ID, status); err != nil {
-		s.logf("api: heartbeat %s: %v", req.ID, err)
+	if err := s.Store.Heartbeat(r.Context(), id, status); err != nil {
+		s.logf("api: heartbeat %s: %v", id, err)
 		writeErr(w, http.StatusInternalServerError, "heartbeat failed")
 		return
 	}
@@ -159,7 +219,8 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.WorkerID == "" {
+	workerID := authWorkerID(r, req.WorkerID)
+	if workerID == "" {
 		writeErr(w, http.StatusBadRequest, "worker_id is required")
 		return
 	}
@@ -174,9 +235,9 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	case n > maxClaim:
 		n = maxClaim
 	}
-	jobs, err := s.Store.ClaimJobs(r.Context(), req.WorkerID, model.JobPhase(req.Phase), n)
+	jobs, err := s.Store.ClaimJobs(r.Context(), workerID, model.JobPhase(req.Phase), n)
 	if err != nil {
-		s.logf("api: claim %s: %v", req.WorkerID, err)
+		s.logf("api: claim %s: %v", workerID, err)
 		writeErr(w, http.StatusInternalServerError, "claim failed")
 		return
 	}
@@ -218,7 +279,8 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.WorkerID == "" {
+	workerID := authWorkerID(r, req.WorkerID)
+	if workerID == "" {
 		writeErr(w, http.StatusBadRequest, "worker_id is required")
 		return
 	}
@@ -226,9 +288,9 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 	for _, item := range req.Results {
 		// The worker is untrusted: bound its numbers before they reach history.
 		run := s.Bounds.sanitize(item)
-		ok, err := s.Store.RecordResult(r.Context(), req.WorkerID, item.JobID, run)
+		ok, err := s.Store.RecordResult(r.Context(), workerID, item.JobID, run)
 		if err != nil {
-			s.logf("api: results %s job %d: %v", req.WorkerID, item.JobID, err)
+			s.logf("api: results %s job %d: %v", workerID, item.JobID, err)
 			writeErr(w, http.StatusInternalServerError, "results failed")
 			return
 		}
@@ -236,7 +298,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 			accepted++
 		} else {
 			// Job missing or not held by this worker: a stale or forged report.
-			s.logf("api: results %s dropped job %d (not owned)", req.WorkerID, item.JobID)
+			s.logf("api: results %s dropped job %d (not owned)", workerID, item.JobID)
 		}
 	}
 	writeJSON(w, http.StatusOK, resultsResp{Accepted: accepted})
@@ -254,12 +316,13 @@ func (s *Server) handleNack(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.WorkerID == "" {
+	workerID := authWorkerID(r, req.WorkerID)
+	if workerID == "" {
 		writeErr(w, http.StatusBadRequest, "worker_id is required")
 		return
 	}
-	if _, err := s.Store.NackJobs(r.Context(), req.WorkerID, req.JobIDs); err != nil {
-		s.logf("api: nack %s: %v", req.WorkerID, err)
+	if _, err := s.Store.NackJobs(r.Context(), workerID, req.JobIDs); err != nil {
+		s.logf("api: nack %s: %v", workerID, err)
 		writeErr(w, http.StatusInternalServerError, "nack failed")
 		return
 	}
