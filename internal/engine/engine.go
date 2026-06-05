@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
+	"github.com/whitedns/vless-tester/internal/convert"
+	"github.com/whitedns/vless-tester/internal/ingest"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
 	"github.com/whitedns/vless-tester/internal/output"
@@ -285,6 +287,13 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	}
 	sum.Artifacts = files
 
+	// Render and persist the multi-format subscriptions the public /sub endpoint
+	// serves. Done before the git push so a render failure surfaces without
+	// publishing a stale repo.
+	if err := e.persistArtifacts(ctx, pubServers); err != nil {
+		return sum, err
+	}
+
 	if e.Publisher != nil {
 		msg := fmt.Sprintf("publish: %d working servers", len(pubServers))
 		if err := e.Publisher.Publish(ctx, files, msg); err != nil {
@@ -292,6 +301,32 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 		}
 	}
 	return sum, nil
+}
+
+// persistArtifacts renders every subscription format from the approved nodes and
+// stores them for the public /sub endpoint. Each rendered format derives only
+// from the public share URI (re-parsed) and the public node name, so the served
+// output carries no inner-working. An approved URI that no longer parses is
+// skipped rather than aborting the whole publish.
+func (e *Engine) persistArtifacts(ctx context.Context, pubServers []output.PublicServer) error {
+	nodes := make([]convert.Node, 0, len(pubServers))
+	for _, p := range pubServers {
+		srv, err := ingest.Parse(p.RawURI)
+		if err != nil {
+			continue
+		}
+		nodes = append(nodes, convert.Node{Server: srv, Name: output.NodeName(e.Brand, p)})
+	}
+	for _, target := range convert.Targets {
+		content, err := convert.Render(target, nodes)
+		if err != nil {
+			return fmt.Errorf("engine: render %s: %w", target, err)
+		}
+		if err := e.Store.SavePublishedArtifact(ctx, target, convert.ContentType(target), content, len(nodes)); err != nil {
+			return fmt.Errorf("engine: persist %s: %w", target, err)
+		}
+	}
+	return nil
 }
 
 // probe starts the proxy and runs latency, then speed only if latency passed.

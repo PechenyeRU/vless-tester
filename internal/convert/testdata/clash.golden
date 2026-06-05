@@ -1,0 +1,112 @@
+proxies:
+    - client-fingerprint: chrome
+      name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | VLESS"
+      network: ws
+      port: 443
+      server: vless.example.com
+      servername: vless.example.com
+      tls: true
+      type: vless
+      uuid: 11111111-1111-1111-1111-111111111111
+      ws-opts:
+        headers:
+            Host: cdn.example.com
+        path: /ws
+    - client-fingerprint: chrome
+      flow: xtls-rprx-vision
+      grpc-opts:
+        grpc-service-name: grpcsvc
+      name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | VLESS-reality"
+      network: grpc
+      port: 443
+      reality-opts:
+        public-key: PUBKEY
+        short-id: abcd
+      server: reality.example.com
+      servername: reality.example.com
+      tls: true
+      type: vless
+      uuid: 11111111-1111-1111-1111-111111111111
+    - alterId: 0
+      cipher: auto
+      name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | VMess"
+      network: ws
+      port: 443
+      server: vmess.example.com
+      servername: vmess.example.com
+      tls: true
+      type: vmess
+      uuid: 11111111-1111-1111-1111-111111111111
+      ws-opts:
+        headers:
+            Host: cdn.example.com
+        path: /ray
+    - name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | Trojan"
+      password: pass123
+      port: 8443
+      server: trojan.example.com
+      skip-cert-verify: true
+      sni: trojan.example.com
+      type: trojan
+    - congestion-controller: bbr
+      name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | TUIC"
+      password: secret
+      port: 443
+      server: tuic.example.com
+      sni: tuic.example.com
+      type: tuic
+      uuid: 11111111-1111-1111-1111-111111111111
+    - name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | Hysteria2"
+      obfs: salamander
+      obfs-password: obfspw
+      password: auth123
+      port: 443
+      server: hy2.example.com
+      skip-cert-verify: true
+      sni: hy2.example.com
+      type: hysteria2
+    - cipher: aes-256-gcm
+      name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | Shadowsocks"
+      password: password
+      port: 8388
+      server: ss.example.com
+      type: ss
+    - name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | AnyTLS"
+      password: password
+      port: 443
+      server: at.example.com
+      skip-cert-verify: true
+      sni: at.example.com
+      type: anytls
+    - auth-str: secret
+      down: "50"
+      name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | HysteriaV1"
+      obfs: xplus
+      port: 443
+      server: h1.example.com
+      skip-cert-verify: true
+      sni: h1.example.com
+      type: hysteria
+      up: "100"
+    - name: "\U0001F1EB\U0001F1F7 | @WhiteDNS | SOCKS"
+      password: pass
+      port: 1080
+      server: sk.example.com
+      type: socks5
+      username: user
+proxy-groups:
+    - name: WhiteDNS
+      proxies:
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | VLESS"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | VLESS-reality"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | VMess"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | Trojan"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | TUIC"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | Hysteria2"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | Shadowsocks"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | AnyTLS"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | HysteriaV1"
+        - "\U0001F1EB\U0001F1F7 | @WhiteDNS | SOCKS"
+      type: select
+rules:
+    - MATCH,WhiteDNS

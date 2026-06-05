@@ -1,0 +1,13 @@
+[Proxy]
+🇫🇷 | @WhiteDNS | VMess = vmess, vmess.example.com, 443, username=11111111-1111-1111-1111-111111111111, tls=true, sni=vmess.example.com, ws=true, ws-path=/ray, ws-headers=Host:cdn.example.com
+🇫🇷 | @WhiteDNS | Trojan = trojan, trojan.example.com, 8443, password=pass123, sni=trojan.example.com, skip-cert-verify=true
+🇫🇷 | @WhiteDNS | TUIC = tuic-v5, tuic.example.com, 443, uuid=11111111-1111-1111-1111-111111111111, password=secret, sni=tuic.example.com
+🇫🇷 | @WhiteDNS | Hysteria2 = hysteria2, hy2.example.com, 443, password=auth123, sni=hy2.example.com, skip-cert-verify=true
+🇫🇷 | @WhiteDNS | Shadowsocks = ss, ss.example.com, 8388, encrypt-method=aes-256-gcm, password=password
+🇫🇷 | @WhiteDNS | SOCKS = socks5, sk.example.com, 1080, username=user, password=pass
+
+[Proxy Group]
+WhiteDNS = select, 🇫🇷 | @WhiteDNS | VMess, 🇫🇷 | @WhiteDNS | Trojan, 🇫🇷 | @WhiteDNS | TUIC, 🇫🇷 | @WhiteDNS | Hysteria2, 🇫🇷 | @WhiteDNS | Shadowsocks, 🇫🇷 | @WhiteDNS | SOCKS
+
+[Rule]
+FINAL,WhiteDNS

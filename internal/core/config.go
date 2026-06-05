@@ -35,6 +35,21 @@ func BuildConfig(srv model.Server, socksPort int) ([]byte, error) {
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
+// Outbound renders the sing-box outbound for a server under a custom tag. It is
+// the export used by subscription conversion (internal/convert) to reuse the
+// validated per-protocol mappers; the proxy-under-test path uses BuildConfig
+// with the fixed OutboundTag instead.
+func Outbound(srv model.Server, tag string) (map[string]any, error) {
+	o, err := buildOutbound(srv)
+	if err != nil {
+		return nil, err
+	}
+	if tag != "" {
+		o["tag"] = tag
+	}
+	return o, nil
+}
+
 // buildOutbound maps a normalized Server to a sing-box outbound object.
 func buildOutbound(srv model.Server) (map[string]any, error) {
 	switch srv.Protocol {
@@ -231,10 +246,21 @@ func baseTLS(srv model.Server) map[string]any {
 	return tls
 }
 
+// transportNetwork resolves the transport network. vmess carries the network in
+// `net` and a header-obfs type (e.g. "none") in `type`, so reading `type` first
+// would mistake the header for the network; every other protocol carries the
+// network in `type` (falling back to `net`).
+func transportNetwork(srv model.Server) string {
+	if srv.Protocol == model.ProtocolVMess {
+		return srv.Params["net"]
+	}
+	return orDefault(srv.Params["type"], srv.Params["net"])
+}
+
 // buildTransport maps the ws/grpc/http transport hints to a sing-box transport
 // object, or nil for plain TCP.
 func buildTransport(srv model.Server) map[string]any {
-	kind := orDefault(srv.Params["type"], srv.Params["net"])
+	kind := transportNetwork(srv)
 	host := srv.Params["host"]
 	path := srv.Params["path"]
 	switch strings.ToLower(kind) {

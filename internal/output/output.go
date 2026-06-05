@@ -117,6 +117,12 @@ func buildReadme(brand string, records []publicRecord) []byte {
 	return []byte(b.String())
 }
 
+// RenameLink sets the public display name on a share link without touching its
+// connection parameters. It is exported for the multi-format converters
+// (internal/convert), which reuse the same vmess-ps / fragment renaming as the
+// base64 subscription so every format presents identical node names.
+func RenameLink(raw, name string) string { return renameLink(raw, name) }
+
 // renameLink sets the display name on a share link without touching its
 // connection parameters: the JSON ps field for vmess, the URI fragment for the
 // rest.

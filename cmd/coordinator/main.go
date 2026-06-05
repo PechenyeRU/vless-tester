@@ -217,6 +217,9 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
 	mux.Handle("/api/v1/worker-tokens", admin)
 	mux.Handle("/api/v1/worker-tokens/", admin)
 	mux.Handle("/api/v1/login", admin)
+	// Public subscription distribution endpoint (no auth): clients fetch the
+	// working list here in their preferred format. Serves public data only.
+	mux.Handle("/sub", (&api.SubServer{Store: st, Logf: log.Printf}).Handler())
 	// Embedded SvelteKit dashboard at the root, below the API planes.
 	mux.Handle("/", webui.Handler())
 	return mux

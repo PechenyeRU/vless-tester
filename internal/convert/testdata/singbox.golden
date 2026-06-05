@@ -1,0 +1,192 @@
+{
+  "outbounds": [
+    {
+      "server": "vless.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | VLESS",
+      "tls": {
+        "enabled": true,
+        "server_name": "vless.example.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "cdn.example.com"
+        },
+        "path": "/ws",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "11111111-1111-1111-1111-111111111111"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "reality.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | VLESS-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "PUBKEY",
+          "short_id": "abcd"
+        },
+        "server_name": "reality.example.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "service_name": "grpcsvc",
+        "type": "grpc"
+      },
+      "type": "vless",
+      "uuid": "11111111-1111-1111-1111-111111111111"
+    },
+    {
+      "alter_id": 0,
+      "security": "auto",
+      "server": "vmess.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | VMess",
+      "tls": {
+        "enabled": true,
+        "server_name": "vmess.example.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "cdn.example.com"
+        },
+        "path": "/ray",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "11111111-1111-1111-1111-111111111111"
+    },
+    {
+      "password": "pass123",
+      "server": "trojan.example.com",
+      "server_port": 8443,
+      "tag": "🇫🇷 | @WhiteDNS | Trojan",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "trojan.example.com"
+      },
+      "type": "trojan"
+    },
+    {
+      "congestion_control": "bbr",
+      "password": "secret",
+      "server": "tuic.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | TUIC",
+      "tls": {
+        "enabled": true,
+        "server_name": "tuic.example.com"
+      },
+      "type": "tuic",
+      "uuid": "11111111-1111-1111-1111-111111111111"
+    },
+    {
+      "obfs": {
+        "password": "obfspw",
+        "type": "salamander"
+      },
+      "password": "auth123",
+      "server": "hy2.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | Hysteria2",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "hy2.example.com"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "method": "aes-256-gcm",
+      "password": "password",
+      "server": "ss.example.com",
+      "server_port": 8388,
+      "tag": "🇫🇷 | @WhiteDNS | Shadowsocks",
+      "type": "shadowsocks"
+    },
+    {
+      "password": "password",
+      "server": "at.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | AnyTLS",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "at.example.com"
+      },
+      "type": "anytls"
+    },
+    {
+      "auth_str": "secret",
+      "down_mbps": 50,
+      "obfs": "xplus",
+      "server": "h1.example.com",
+      "server_port": 443,
+      "tag": "🇫🇷 | @WhiteDNS | HysteriaV1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "h1.example.com"
+      },
+      "type": "hysteria",
+      "up_mbps": 100
+    },
+    {
+      "password": "pass",
+      "server": "sk.example.com",
+      "server_port": 1080,
+      "tag": "🇫🇷 | @WhiteDNS | SOCKS",
+      "type": "socks",
+      "username": "user",
+      "version": "5"
+    },
+    {
+      "interval": "10m",
+      "outbounds": [
+        "🇫🇷 | @WhiteDNS | VLESS",
+        "🇫🇷 | @WhiteDNS | VLESS-reality",
+        "🇫🇷 | @WhiteDNS | VMess",
+        "🇫🇷 | @WhiteDNS | Trojan",
+        "🇫🇷 | @WhiteDNS | TUIC",
+        "🇫🇷 | @WhiteDNS | Hysteria2",
+        "🇫🇷 | @WhiteDNS | Shadowsocks",
+        "🇫🇷 | @WhiteDNS | AnyTLS",
+        "🇫🇷 | @WhiteDNS | HysteriaV1",
+        "🇫🇷 | @WhiteDNS | SOCKS"
+      ],
+      "tag": "auto",
+      "type": "urltest",
+      "url": "https://www.gstatic.com/generate_204"
+    },
+    {
+      "default": "auto",
+      "outbounds": [
+        "auto",
+        "🇫🇷 | @WhiteDNS | VLESS",
+        "🇫🇷 | @WhiteDNS | VLESS-reality",
+        "🇫🇷 | @WhiteDNS | VMess",
+        "🇫🇷 | @WhiteDNS | Trojan",
+        "🇫🇷 | @WhiteDNS | TUIC",
+        "🇫🇷 | @WhiteDNS | Hysteria2",
+        "🇫🇷 | @WhiteDNS | Shadowsocks",
+        "🇫🇷 | @WhiteDNS | AnyTLS",
+        "🇫🇷 | @WhiteDNS | HysteriaV1",
+        "🇫🇷 | @WhiteDNS | SOCKS"
+      ],
+      "tag": "select",
+      "type": "selector"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ]
+}

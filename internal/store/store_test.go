@@ -57,7 +57,7 @@ func newTestStore(t *testing.T) *store.Store {
 	}
 	// Clean every table except settings (seeded by migration and shared).
 	if _, err := st.Pool().Exec(ctx,
-		`TRUNCATE checks, test_runs, jobs, servers, workers, sources, worker_tokens RESTART IDENTITY CASCADE`,
+		`TRUNCATE checks, test_runs, jobs, servers, workers, sources, worker_tokens, published_artifacts RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

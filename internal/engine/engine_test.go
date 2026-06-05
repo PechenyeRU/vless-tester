@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
+
 	"github.com/whitedns/vless-tester/internal/checks"
 	"github.com/whitedns/vless-tester/internal/engine"
 	"github.com/whitedns/vless-tester/internal/ingest"
@@ -176,6 +178,30 @@ func TestEngineRunOnceEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(string(decoded), "@WhiteDNS | FR1 |") {
 		t.Fatalf("renamed node name missing from subscription")
+	}
+
+	// Multi-format subscriptions were rendered and persisted for /sub. The clash
+	// artifact must be valid yaml carrying both approved nodes.
+	clash, err := st.PublishedArtifact(ctx, "clash")
+	if err != nil {
+		t.Fatalf("clash artifact not persisted: %v", err)
+	}
+	if clash.NodeCount != 2 {
+		t.Fatalf("clash node_count = %d, want 2", clash.NodeCount)
+	}
+	var doc struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal(clash.Content, &doc); err != nil {
+		t.Fatalf("persisted clash is not valid yaml: %v", err)
+	}
+	if len(doc.Proxies) != 2 {
+		t.Fatalf("clash proxies = %d, want 2", len(doc.Proxies))
+	}
+	for _, target := range []string{"base64", "singbox", "v2ray", "surge"} {
+		if _, err := st.PublishedArtifact(ctx, target); err != nil {
+			t.Fatalf("artifact %s not persisted: %v", target, err)
+		}
 	}
 }
 

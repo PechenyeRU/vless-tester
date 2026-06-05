@@ -22,6 +22,33 @@
 
 	const aliveCount = $derived(workers.filter((w) => w.status !== 'dead').length);
 
+	// Public subscription distribution links (served unauthenticated by /sub).
+	const subTargets = [
+		{ id: 'base64', label: 'Base64' },
+		{ id: 'singbox', label: 'sing-box' },
+		{ id: 'clash', label: 'Clash / Mihomo' },
+		{ id: 'v2ray', label: 'V2Ray' },
+		{ id: 'surge', label: 'Surge' }
+	];
+	let copied = $state('');
+
+	function subUrl(target) {
+		const origin = typeof window !== 'undefined' ? window.location.origin : '';
+		return `${origin}/sub?target=${target}`;
+	}
+
+	async function copy(target) {
+		try {
+			await navigator.clipboard.writeText(subUrl(target));
+			copied = target;
+			setTimeout(() => {
+				if (copied === target) copied = '';
+			}, 1500);
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
 	onMount(load);
 </script>
 
@@ -61,6 +88,30 @@
 		<div class="stat">
 			<div class="stat-title">Countries</div>
 			<div class="stat-value">{(stats.by_country || []).length}</div>
+		</div>
+	</div>
+
+	<div class="card bg-base-100 shadow mb-6">
+		<div class="card-body">
+			<h2 class="text-lg font-semibold">Subscriptions</h2>
+			<p class="text-sm text-base-content/60">
+				Public distribution links for the latest working list. Point your client at one of these.
+			</p>
+			<div class="grid gap-2 sm:grid-cols-2 mt-2">
+				{#each subTargets as t}
+					<div class="join w-full">
+						<span class="join-item btn btn-sm btn-disabled w-32 justify-start">{t.label}</span>
+						<input
+							class="join-item input input-sm input-bordered flex-1 mono"
+							readonly
+							value={subUrl(t.id)}
+						/>
+						<button class="join-item btn btn-sm btn-primary" onclick={() => copy(t.id)}>
+							{copied === t.id ? 'Copied' : 'Copy'}
+						</button>
+					</div>
+				{/each}
+			</div>
 		</div>
 	</div>
 
