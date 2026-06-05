@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/model"
@@ -119,18 +120,49 @@ func waitReady(ctx context.Context, inst *Instance, timeout time.Duration) error
 }
 
 // ResolveBinary locates the sing-box executable: explicit path, then SINGBOX_BIN,
-// then the PATH.
+// then the PATH. A relative path (e.g. SINGBOX_BIN=./bin/sing-box) is anchored by
+// searching upward from the working directory, so it resolves the same whether a
+// caller runs from the repo root or from a subdirectory (notably `go test ./...`,
+// which runs each package in its own directory).
 func ResolveBinary(explicit string) (string, error) {
 	if explicit != "" {
-		return explicit, nil
+		return anchorRelative(explicit), nil
 	}
 	if env := os.Getenv("SINGBOX_BIN"); env != "" {
-		return env, nil
+		return anchorRelative(env), nil
 	}
 	if path, err := exec.LookPath("sing-box"); err == nil {
 		return path, nil
 	}
 	return "", ErrBinaryNotFound
+}
+
+// anchorRelative resolves a relative path against the first ancestor directory
+// (starting at the working directory) where it exists. Absolute paths and paths
+// that exist as given are returned unchanged; an unresolvable relative path is
+// returned as-is so the caller surfaces the original error.
+func anchorRelative(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return p
+	}
+	for {
+		candidate := filepath.Join(dir, p)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return p // reached the filesystem root without a match
+		}
+		dir = parent
+	}
 }
 
 // FreePort asks the OS for an unused loopback TCP port.
