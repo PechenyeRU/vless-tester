@@ -1,0 +1,199 @@
+package engine_test
+
+import (
+	"context"
+	"encoding/base64"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/whitedns/vless-tester/internal/checks"
+	"github.com/whitedns/vless-tester/internal/engine"
+	"github.com/whitedns/vless-tester/internal/ingest"
+	"github.com/whitedns/vless-tester/internal/model"
+	"github.com/whitedns/vless-tester/internal/naming"
+	"github.com/whitedns/vless-tester/internal/output"
+	"github.com/whitedns/vless-tester/internal/store"
+)
+
+// stubInstance / stubProber stand in for the sing-box core: no real proxy is
+// started, so the pipeline can be exercised without sing-box or live servers.
+type stubInstance struct{}
+
+func (stubInstance) SocksAddress() string { return "127.0.0.1:0" }
+func (stubInstance) Close() error         { return nil }
+
+type stubProber struct{}
+
+func (stubProber) Start(_ context.Context, _ model.Server) (engine.Instance, error) {
+	return stubInstance{}, nil
+}
+
+// fakeResolver maps IPs to fixed countries.
+type fakeResolver map[string]string
+
+func (f fakeResolver) LookupCountry(ip net.IP) (string, error) { return f[ip.String()], nil }
+
+func newSpeedServer(t *testing.T) *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/204", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
+	mux.HandleFunc("/down", func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.URL.Query().Get("bytes"))
+		io.CopyN(w, zeroSrc{}, int64(n))
+	})
+	mux.HandleFunc("/up", func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(200)
+	})
+	return httptest.NewServer(mux)
+}
+
+type zeroSrc struct{}
+
+func (zeroSrc) Read(p []byte) (int, error) { return len(p), nil }
+
+func newTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping engine integration test")
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, dsn)
+	if err != nil {
+		t.Skipf("cannot reach TEST_DATABASE_URL: %v", err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if _, err := st.Pool().Exec(ctx,
+		`TRUNCATE checks, test_runs, jobs, country_seq, servers, workers, sources RESTART IDENTITY CASCADE`,
+	); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	t.Cleanup(st.Close)
+	return st
+}
+
+func newEngine(st *store.Store, srv *httptest.Server) *engine.Engine {
+	return &engine.Engine{
+		Store:  st,
+		Prober: stubProber{},
+		// Ignore the (stub) SOCKS address; talk to the test server directly.
+		NewClient: func(string) (*http.Client, error) { return srv.Client(), nil },
+		Latency:   checks.LatencyCheck{URL: srv.URL + "/204"},
+		Speed: checks.SpeedCheck{Config: checks.SpeedConfig{
+			DownloadURL: srv.URL + "/down",
+			UploadURL:   srv.URL + "/up",
+			Streams:     2,
+			Bytes:       200_000,
+		}},
+		Resolver:  fakeResolver{"8.8.8.8": "FR", "1.1.1.1": "FR"},
+		Seq:       naming.Allocator{Backend: st.NewSeqBackend()},
+		Publisher: &output.MockPublisher{},
+		Brand:     "@WhiteDNS",
+		WorkerID:  "test-worker",
+		Approval:  engine.Approval{MaxLatencyMs: 60000, MinDlMBps: 0},
+	}
+}
+
+func TestEngineRunOnceEndToEnd(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+
+	eng := newEngine(st, srv)
+	pub := eng.Publisher.(*output.MockPublisher)
+
+	servers, _ := ingest.ParseList(strings.Join([]string{
+		"vless://uuid@8.8.8.8:443?type=ws#a",
+		"trojan://pw@1.1.1.1:443#b",
+	}, "\n"))
+
+	ctx := context.Background()
+	sum, err := eng.RunOnce(ctx, servers)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if sum.Tested != 2 || sum.Approved != 2 {
+		t.Fatalf("tested=%d approved=%d, want 2/2", sum.Tested, sum.Approved)
+	}
+
+	// Servers persisted with stable sequence names.
+	n, _ := st.CountServers(ctx)
+	if n != 2 {
+		t.Fatalf("stored servers = %d, want 2", n)
+	}
+	s0, _ := st.GetServer(ctx, 1)
+	s1, _ := st.GetServer(ctx, 2)
+	if s0.SeqName != "FR1" || s1.SeqName != "FR2" {
+		t.Fatalf("seq names = %q,%q want FR1,FR2", s0.SeqName, s1.SeqName)
+	}
+	if s0.Country != "FR" {
+		t.Fatalf("country = %q, want FR", s0.Country)
+	}
+
+	// Publisher received artifacts containing two renamed links.
+	if pub.Calls != 1 {
+		t.Fatalf("publisher calls = %d, want 1", pub.Calls)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(string(pub.Files[output.FileSubscription]))
+	if err != nil {
+		t.Fatalf("subscription not base64: %v", err)
+	}
+	if got := strings.Count(string(decoded), "\n"); got != 1 {
+		t.Fatalf("expected 2 links (1 newline), got %d newlines", got)
+	}
+	if !strings.Contains(string(decoded), "@WhiteDNS | FR1 |") {
+		t.Fatalf("renamed node name missing from subscription")
+	}
+}
+
+func TestEngineStableSeqAcrossRuns(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+
+	eng := newEngine(st, srv)
+	servers, _ := ingest.ParseList("vless://uuid@8.8.8.8:443?type=ws#a")
+
+	ctx := context.Background()
+	if _, err := eng.RunOnce(ctx, servers); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	first, _ := st.GetServer(ctx, 1)
+
+	// A second run must keep the same sequence name (stable identity).
+	if _, err := eng.RunOnce(ctx, servers); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	second, _ := st.GetServer(ctx, 1)
+	if first.SeqName != second.SeqName || first.SeqName != "FR1" {
+		t.Fatalf("seq drifted: %q -> %q", first.SeqName, second.SeqName)
+	}
+}
+
+func TestEngineLatencyFailSkipsApproval(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+
+	eng := newEngine(st, srv)
+	// Point latency at a closed port so the check fails.
+	eng.Latency = checks.LatencyCheck{URL: "http://127.0.0.1:1/nope"}
+
+	servers, _ := ingest.ParseList("vless://uuid@8.8.8.8:443?type=ws#a")
+	ctx := context.Background()
+	sum, err := eng.RunOnce(ctx, servers)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if sum.Tested != 1 || sum.Approved != 0 {
+		t.Fatalf("tested=%d approved=%d, want 1/0", sum.Tested, sum.Approved)
+	}
+}
