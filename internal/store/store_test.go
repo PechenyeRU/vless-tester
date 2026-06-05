@@ -287,6 +287,99 @@ func TestClaimJobsSkipLockedNoDoubleClaim(t *testing.T) {
 	}
 }
 
+// TestRecordResult verifies a worker can only report results for jobs it holds:
+// an owned job is recorded and closed, a job claimed by another worker is
+// dropped (ok=false) and left untouched.
+func TestRecordResult(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	mustWorker(t, st, "w2")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseLatency); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	claimed, err := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim got %d err=%v", len(claimed), err)
+	}
+	jobID := claimed[0].JobID
+
+	// A different worker cannot report on w1's job.
+	lat := 7
+	ok, err := st.RecordResult(ctx, "w2", jobID, model.TestRun{Status: model.StatusOK, LatencyMs: &lat})
+	if err != nil {
+		t.Fatalf("foreign record: %v", err)
+	}
+	if ok {
+		t.Fatal("foreign worker should not record result")
+	}
+
+	// The owning worker records and the job closes as done.
+	lat2 := 42
+	ok, err = st.RecordResult(ctx, "w1", jobID, model.TestRun{Status: model.StatusOK, LatencyMs: &lat2})
+	if err != nil {
+		t.Fatalf("owner record: %v", err)
+	}
+	if !ok {
+		t.Fatal("owner record should succeed")
+	}
+	done, _ := st.CountJobs(ctx, model.JobDone)
+	if done != 1 {
+		t.Fatalf("done jobs = %d, want 1", done)
+	}
+
+	// A failing status closes the job as failed instead.
+	if _, err := st.EnqueueJob(ctx, srvID, model.PhaseSpeed); err != nil {
+		t.Fatalf("enqueue speed: %v", err)
+	}
+	c2, _ := st.ClaimJobs(ctx, "w1", model.PhaseSpeed, 1)
+	if _, err := st.RecordResult(ctx, "w1", c2[0].JobID, model.TestRun{Status: model.StatusTimeout}); err != nil {
+		t.Fatalf("record fail: %v", err)
+	}
+	failed, _ := st.CountJobs(ctx, model.JobFailed)
+	if failed != 1 {
+		t.Fatalf("failed jobs = %d, want 1", failed)
+	}
+}
+
+// TestNackJobs verifies a worker releases only its own claimed jobs.
+func TestNackJobs(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	mustWorker(t, st, "w2")
+	id1, _ := st.UpsertServer(ctx, sampleServer(1))
+	id2, _ := st.UpsertServer(ctx, sampleServer(2))
+	st.EnqueueJob(ctx, id1, model.PhaseLatency)
+	st.EnqueueJob(ctx, id2, model.PhaseLatency)
+
+	c1, _ := st.ClaimJobs(ctx, "w1", model.PhaseLatency, 1)
+	c2, _ := st.ClaimJobs(ctx, "w2", model.PhaseLatency, 1)
+	if len(c1) != 1 || len(c2) != 1 {
+		t.Fatalf("claims: w1=%d w2=%d", len(c1), len(c2))
+	}
+
+	// w1 tries to release both its own and w2's job; only its own is requeued.
+	n, err := st.NackJobs(ctx, "w1", []int64{c1[0].JobID, c2[0].JobID})
+	if err != nil {
+		t.Fatalf("nack: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("nacked %d, want 1", n)
+	}
+	queued, _ := st.CountJobs(ctx, model.JobQueued)
+	if queued != 1 {
+		t.Fatalf("queued = %d, want 1", queued)
+	}
+	claimedCount, _ := st.CountJobs(ctx, model.JobClaimed)
+	if claimedCount != 1 {
+		t.Fatalf("claimed = %d, want 1 (w2 untouched)", claimedCount)
+	}
+}
+
 func mustWorker(t *testing.T, st *store.Store, id string) {
 	t.Helper()
 	if err := st.UpsertWorker(context.Background(), model.Worker{

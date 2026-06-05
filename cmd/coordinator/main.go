@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/whitedns/vless-tester/internal/api"
 	"github.com/whitedns/vless-tester/internal/checks"
 	"github.com/whitedns/vless-tester/internal/core"
 	"github.com/whitedns/vless-tester/internal/engine"
@@ -104,11 +105,38 @@ func run() error {
 		})
 	}
 
+	// Worker control plane: register/heartbeat/claim/results/nack over REST.
+	srv := &http.Server{
+		Addr:              apiAddr(),
+		Handler:           (&api.Server{Store: st, Token: os.Getenv("WORKER_TOKEN"), Logf: log.Printf}).Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		log.Printf("coordinator: control plane listening on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("control plane: %v", err)
+			stop()
+		}
+	}()
+
 	log.Printf("coordinator started; scheduler running")
 	sched.Start(ctx)
 	<-ctx.Done()
 	log.Printf("coordinator shutting down")
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Printf("control plane shutdown: %v", err)
+	}
 	return nil
+}
+
+func apiAddr() string {
+	if v := os.Getenv("API_ADDR"); v != "" {
+		return v
+	}
+	return ":8080"
 }
 
 // buildEngine wires the engine with the real sing-box core and SOCKS client.
