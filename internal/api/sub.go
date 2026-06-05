@@ -19,6 +19,9 @@ import (
 // *store.Store satisfies it; tests inject a fake.
 type SubStore interface {
 	PublishedArtifact(ctx context.Context, target string) (store.PublishedArtifact, error)
+	// SubPath returns the optional obfuscated path token: when set, /sub is only
+	// reachable at /sub/<token> and bare /sub is hidden.
+	SubPath(ctx context.Context) (string, error)
 }
 
 // SubServer serves the public GET /sub endpoint.
@@ -33,15 +36,31 @@ func (s *SubServer) logf(format string, args ...any) {
 	}
 }
 
-// Handler builds the routed http.Handler for the subscription endpoint.
+// Handler builds the routed http.Handler for the subscription endpoint. Both the
+// bare /sub and the path-token /sub/{token} forms route here; which one is valid
+// depends on the sub.path setting (checked per request).
 func (s *SubServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /sub", s.handleSub)
+	mux.HandleFunc("GET /sub/{token}", s.handleSub)
 	return mux
 }
 
 // handleSub serves the latest rendered artifact for ?target= (default base64).
 func (s *SubServer) handleSub(w http.ResponseWriter, r *http.Request) {
+	// Obfuscated-path gate: when sub.path is set, only /sub/<token> works and bare
+	// /sub is hidden; when unset, only bare /sub works.
+	want, err := s.Store.SubPath(r.Context())
+	if err != nil {
+		s.logf("sub: path setting: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if r.PathValue("token") != want {
+		http.NotFound(w, r)
+		return
+	}
+
 	target := r.URL.Query().Get("target")
 	if target == "" {
 		target = convert.TargetBase64

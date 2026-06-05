@@ -42,6 +42,8 @@ type Store interface {
 	MediaRequire(ctx context.Context) ([]string, error)
 	// IPRiskEnabled reports whether workers should score the exit IP's reputation.
 	IPRiskEnabled(ctx context.Context) (bool, error)
+	// IPRiskURL returns an optional IP-risk provider URL override (empty = default).
+	IPRiskURL(ctx context.Context) (string, error)
 	// FunnelStages returns the ordered, gateable funnel pipeline pushed to workers.
 	FunnelStages(ctx context.Context) ([]model.FunnelStage, error)
 	// SpeedSettings returns the speed-test config pushed to workers.
@@ -246,16 +248,17 @@ type claimReq struct {
 }
 
 type claimedJob struct {
-	JobID    int64               `json:"job_id"`
-	ServerID int64               `json:"server_id"`
-	RawURI   string              `json:"raw_uri"`
-	Phase    string              `json:"phase"`
-	Protocol string              `json:"protocol"`
-	Checks   []string            `json:"checks,omitempty"`
-	Require  []string            `json:"require,omitempty"`
-	IPRisk   bool                `json:"ip_risk,omitempty"`
-	Stages   []model.FunnelStage `json:"stages,omitempty"`
-	Speed    *model.SpeedSpec    `json:"speed,omitempty"`
+	JobID     int64               `json:"job_id"`
+	ServerID  int64               `json:"server_id"`
+	RawURI    string              `json:"raw_uri"`
+	Phase     string              `json:"phase"`
+	Protocol  string              `json:"protocol"`
+	Checks    []string            `json:"checks,omitempty"`
+	Require   []string            `json:"require,omitempty"`
+	IPRisk    bool                `json:"ip_risk,omitempty"`
+	IPRiskURL string              `json:"ip_risk_url,omitempty"`
+	Stages    []model.FunnelStage `json:"stages,omitempty"`
+	Speed     *model.SpeedSpec    `json:"speed,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +310,14 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		s.logf("api: claim %s: ip-risk setting: %v", workerID, err)
 		ipRisk = false // best-effort; never fail a claim over it
 	}
+	var ipRiskURL string
+	if ipRisk {
+		if u, err := s.Store.IPRiskURL(r.Context()); err != nil {
+			s.logf("api: claim %s: ip-risk url: %v", workerID, err)
+		} else {
+			ipRiskURL = u
+		}
+	}
 	stages, err := s.Store.FunnelStages(r.Context())
 	if err != nil {
 		s.logf("api: claim %s: funnel stages: %v", workerID, err)
@@ -321,16 +332,17 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
-			JobID:    j.JobID,
-			ServerID: j.ServerID,
-			RawURI:   j.RawURI,
-			Phase:    string(j.Phase),
-			Protocol: string(j.Protocol),
-			Checks:   platforms,
-			Require:  require,
-			IPRisk:   ipRisk,
-			Stages:   stages,
-			Speed:    speed,
+			JobID:     j.JobID,
+			ServerID:  j.ServerID,
+			RawURI:    j.RawURI,
+			Phase:     string(j.Phase),
+			Protocol:  string(j.Protocol),
+			Checks:    platforms,
+			Require:   require,
+			IPRisk:    ipRisk,
+			IPRiskURL: ipRiskURL,
+			Stages:    stages,
+			Speed:     speed,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

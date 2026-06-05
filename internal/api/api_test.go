@@ -34,6 +34,7 @@ type fakeStore struct {
 	mediaPlatforms []string
 	mediaRequire   []string
 	ipRisk         bool
+	ipRiskURL      string
 	stages         []model.FunnelStage
 	speed          model.SpeedSpec
 }
@@ -86,6 +87,7 @@ func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64)
 func (f *fakeStore) MediaChecks(_ context.Context) ([]string, error)  { return f.mediaPlatforms, nil }
 func (f *fakeStore) MediaRequire(_ context.Context) ([]string, error) { return f.mediaRequire, nil }
 func (f *fakeStore) IPRiskEnabled(_ context.Context) (bool, error)    { return f.ipRisk, nil }
+func (f *fakeStore) IPRiskURL(_ context.Context) (string, error)      { return f.ipRiskURL, nil }
 func (f *fakeStore) FunnelStages(_ context.Context) ([]model.FunnelStage, error) {
 	return f.stages, nil
 }

@@ -13,6 +13,7 @@ import (
 // fakeSubStore serves canned artifacts; an absent target yields ErrNoArtifact.
 type fakeSubStore struct {
 	artifacts map[string]store.PublishedArtifact
+	path      string
 }
 
 func (f *fakeSubStore) PublishedArtifact(_ context.Context, target string) (store.PublishedArtifact, error) {
@@ -22,6 +23,8 @@ func (f *fakeSubStore) PublishedArtifact(_ context.Context, target string) (stor
 	}
 	return a, nil
 }
+
+func (f *fakeSubStore) SubPath(_ context.Context) (string, error) { return f.path, nil }
 
 func newSubServer(arts map[string]store.PublishedArtifact) http.Handler {
 	return (&SubServer{Store: &fakeSubStore{artifacts: arts}}).Handler()
@@ -68,6 +71,44 @@ func TestSubUnknownTarget(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestSubObfuscatedPath(t *testing.T) {
+	arts := map[string]store.PublishedArtifact{
+		convert.TargetBase64: {Content: []byte("Zm9v"), ContentType: "text/plain"},
+	}
+	h := (&SubServer{Store: &fakeSubStore{artifacts: arts, path: "s3cr3t"}}).Handler()
+
+	// Bare /sub is hidden when a path is configured.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sub?target=base64", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("bare /sub with path set: want 404, got %d", rec.Code)
+	}
+	// The token path serves.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sub/s3cr3t?target=base64", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "Zm9v" {
+		t.Fatalf("/sub/<token>: status=%d body=%q", rec.Code, rec.Body.String())
+	}
+	// A wrong token 404s.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sub/wrong?target=base64", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("wrong token: want 404, got %d", rec.Code)
+	}
+}
+
+func TestSubNoPathRejectsToken(t *testing.T) {
+	h := newSubServer(map[string]store.PublishedArtifact{
+		convert.TargetBase64: {Content: []byte("Zm9v"), ContentType: "text/plain"},
+	})
+	// With no path configured, the token form is hidden.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sub/anything?target=base64", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("token form without path: want 404, got %d", rec.Code)
 	}
 }
 

@@ -32,6 +32,8 @@ type Job struct {
 	Require []string `json:"require,omitempty"`
 	// IPRisk asks the worker to score the exit IP's reputation (informational).
 	IPRisk bool `json:"ip_risk,omitempty"`
+	// IPRiskURL overrides the IP-risk provider URL (empty = worker default).
+	IPRiskURL string `json:"ip_risk_url,omitempty"`
 	// Stages is the ordered, gateable funnel pipeline (media, ip_risk, speed) the
 	// coordinator wants run after latency; empty means use the built-in default.
 	Stages []model.FunnelStage `json:"stages,omitempty"`

@@ -45,6 +45,8 @@
 		'media.platforms': 'Edited above in "Media unlock" (tested platforms).',
 		'media.require': 'Edited above in "Media unlock" (required to unlock).',
 		'iprisk.enabled': 'Edited above in "Media unlock" (IP-risk scoring).',
+		'iprisk.url': 'IP-risk provider URL override (empty = default ip-api.com).',
+		'sub.path': 'Obfuscated token for /sub: when set, the list is only served at /sub/<token> and bare /sub is hidden.',
 		'funnel.stages': 'Edited above in "Test funnel".',
 		'notify.enabled': 'Edited above in "Notifications".',
 		'notify.urls': 'Edited above in "Notifications" (shoutrrr URLs).',

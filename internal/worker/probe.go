@@ -83,7 +83,7 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 			if !job.IPRisk {
 				continue
 			}
-			c, ok := p.runIPRisk(ctx, client)
+			c, ok := p.runIPRisk(ctx, client, job.IPRiskURL)
 			if !ok {
 				continue
 			}
@@ -209,8 +209,11 @@ func (p ProbeRunner) runMedia(ctx context.Context, client *http.Client, platform
 // CheckOutcome (name "ip_risk", passed = low risk, metric = 0-100 score) only
 // when the lookup succeeded; a failed lookup is dropped so it never records a
 // misleading clean score.
-func (p ProbeRunner) runIPRisk(ctx context.Context, client *http.Client) (model.CheckOutcome, bool) {
-	rr, err := checks.IPRiskCheck{URL: p.IPRiskURL, Timeout: p.MediaTimeout}.Run(ctx, client)
+func (p ProbeRunner) runIPRisk(ctx context.Context, client *http.Client, url string) (model.CheckOutcome, bool) {
+	if url == "" {
+		url = p.IPRiskURL
+	}
+	rr, err := checks.IPRiskCheck{URL: url, Timeout: p.MediaTimeout}.Run(ctx, client)
 	if err != nil || !rr.OK {
 		return model.CheckOutcome{}, false
 	}

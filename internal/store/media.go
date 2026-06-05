@@ -89,6 +89,14 @@ func (s *Store) FunnelStages(ctx context.Context) ([]model.FunnelStage, error) {
 	return stages, nil
 }
 
+// IPRiskURL returns the optional IP-risk reputation provider URL override
+// pushed to workers; empty means the worker default.
+func (s *Store) IPRiskURL(ctx context.Context) (string, error) {
+	var url string
+	_ = s.GetSetting(ctx, "iprisk.url", &url)
+	return url, nil
+}
+
 // IPRiskEnabled reports whether workers should score the exit IP's reputation,
 // from the iprisk.enabled setting. Missing means disabled.
 func (s *Store) IPRiskEnabled(ctx context.Context) (bool, error) {
