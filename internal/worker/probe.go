@@ -63,6 +63,14 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		return res
 	}
 
+	// DNS-leak is informational and outside the configurable pipeline: run it once
+	// the proxy is up, when the coordinator asked for it.
+	if job.DNSLeak {
+		if c, ok := p.runDNSLeak(ctx, client); ok {
+			res.Checks = append(res.Checks, c)
+		}
+	}
+
 	// Run the configurable funnel pipeline in order. Latency already ran above as
 	// the connectivity gate; the remaining stages (media, ip_risk, speed) and
 	// their gates come from the coordinator (default order when unset). A gated
@@ -224,6 +232,16 @@ func (p ProbeRunner) runIPRisk(ctx context.Context, client *http.Client, url str
 		Detail: rr.Detail,
 		Metric: &score,
 	}, true
+}
+
+// runDNSLeak checks whether DNS escapes the tunnel (resolver country != exit
+// country). Informational: recorded only when the lookup completed.
+func (p ProbeRunner) runDNSLeak(ctx context.Context, client *http.Client) (model.CheckOutcome, bool) {
+	r, err := checks.DNSLeakCheck{Timeout: p.MediaTimeout}.Run(ctx, client)
+	if err != nil || !r.OK {
+		return model.CheckOutcome{}, false
+	}
+	return model.CheckOutcome{Name: "dns_leak", Passed: !r.Leak, Detail: r.Detail}, true
 }
 
 func fail(err error) Result {

@@ -58,6 +58,7 @@ func (f *apiFake) FunnelStages(_ context.Context) ([]model.FunnelStage, error) {
 func (f *apiFake) SpeedSettings(_ context.Context) (model.SpeedSpec, error) {
 	return model.SpeedSpec{}, nil
 }
+func (f *apiFake) DNSLeakEnabled(_ context.Context) (bool, error) { return false, nil }
 
 // tokResolver authenticates one secret as one worker name.
 type tokResolver struct{ token, name string }

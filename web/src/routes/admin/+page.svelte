@@ -45,6 +45,7 @@
 		'media.platforms': 'Edited above in "Media unlock" (tested platforms).',
 		'media.require': 'Edited above in "Media unlock" (required to unlock).',
 		'iprisk.enabled': 'Edited above in "Media unlock" (IP-risk scoring).',
+		'dnsleak.enabled': 'Edited above in "Media unlock" (DNS-leak check).',
 		'iprisk.url': 'IP-risk provider URL override (empty = default ip-api.com).',
 		'sub.path': 'Obfuscated token for /sub: when set, the list is only served at /sub/<token> and bare /sub is hidden.',
 		'dispatch.shuffle': 'Edited above in "Output filters" (randomize server order per cycle).',
@@ -84,6 +85,7 @@
 	let mediaTested = $state(new Set());
 	let mediaRequire = $state(new Set());
 	let ipRiskEnabled = $state(false);
+	let dnsLeakEnabled = $state(false);
 	// Funnel pipeline (ordered list of {check, gate}).
 	let funnelStages = $state([]);
 	// Notifications.
@@ -116,6 +118,7 @@
 			mediaTested = new Set((sett && sett['media.platforms']) || []);
 			mediaRequire = new Set((sett && sett['media.require']) || []);
 			ipRiskEnabled = !!(sett && sett['iprisk.enabled']);
+			dnsLeakEnabled = !!(sett && sett['dnsleak.enabled']);
 			const fs = sett && sett['funnel.stages'];
 			funnelStages = Array.isArray(fs) && fs.length ? fs.map((s) => ({ ...s })) : FUNNEL_DEFAULT.map((s) => ({ ...s }));
 			notifyEnabled = !!(sett && sett['notify.enabled']);
@@ -150,7 +153,8 @@
 				'media.enabled': mediaEnabled,
 				'media.platforms': MEDIA.filter((p) => mediaTested.has(p)),
 				'media.require': MEDIA.filter((p) => mediaRequire.has(p)),
-				'iprisk.enabled': ipRiskEnabled
+				'iprisk.enabled': ipRiskEnabled,
+				'dnsleak.enabled': dnsLeakEnabled
 			});
 			flash('Media settings saved');
 		} catch (e) {
@@ -613,6 +617,12 @@
 			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={ipRiskEnabled} />
 			<span class="label-text">Enable IP-risk scoring</span>
 			<span class="text-base-content/50 text-sm">(tags each node's exit IP with a 0-100 risk score)</span>
+		</label>
+
+		<label class="label cursor-pointer justify-start gap-2 w-fit">
+			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={dnsLeakEnabled} />
+			<span class="label-text">Enable DNS-leak check</span>
+			<span class="text-base-content/50 text-sm">(flags nodes whose DNS resolver country differs from the exit)</span>
 		</label>
 
 		<div class="mt-3">

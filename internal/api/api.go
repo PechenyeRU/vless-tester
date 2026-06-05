@@ -48,6 +48,8 @@ type Store interface {
 	FunnelStages(ctx context.Context) ([]model.FunnelStage, error)
 	// SpeedSettings returns the speed-test config pushed to workers.
 	SpeedSettings(ctx context.Context) (model.SpeedSpec, error)
+	// DNSLeakEnabled reports whether workers should run the DNS-leak check.
+	DNSLeakEnabled(ctx context.Context) (bool, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity and
@@ -257,6 +259,7 @@ type claimedJob struct {
 	Require   []string            `json:"require,omitempty"`
 	IPRisk    bool                `json:"ip_risk,omitempty"`
 	IPRiskURL string              `json:"ip_risk_url,omitempty"`
+	DNSLeak   bool                `json:"dns_leak,omitempty"`
 	Stages    []model.FunnelStage `json:"stages,omitempty"`
 	Speed     *model.SpeedSpec    `json:"speed,omitempty"`
 }
@@ -329,6 +332,11 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	} else {
 		speed = &spec
 	}
+	dnsLeak, err := s.Store.DNSLeakEnabled(r.Context())
+	if err != nil {
+		s.logf("api: claim %s: dns-leak setting: %v", workerID, err)
+		dnsLeak = false
+	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
@@ -341,6 +349,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			Require:   require,
 			IPRisk:    ipRisk,
 			IPRiskURL: ipRiskURL,
+			DNSLeak:   dnsLeak,
 			Stages:    stages,
 			Speed:     speed,
 		})

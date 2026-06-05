@@ -89,6 +89,19 @@ func (s *Store) FunnelStages(ctx context.Context) ([]model.FunnelStage, error) {
 	return stages, nil
 }
 
+// DNSLeakEnabled reports whether workers should run the DNS-leak check, from the
+// dnsleak.enabled setting. Missing means disabled.
+func (s *Store) DNSLeakEnabled(ctx context.Context) (bool, error) {
+	var enabled bool
+	if err := s.GetSetting(ctx, "dnsleak.enabled", &enabled); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return enabled, nil
+}
+
 // IPRiskURL returns the optional IP-risk reputation provider URL override
 // pushed to workers; empty means the worker default.
 func (s *Store) IPRiskURL(ctx context.Context) (string, error) {

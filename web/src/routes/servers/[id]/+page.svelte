@@ -57,25 +57,33 @@
 
 	{#if detail.checks?.length}
 		{@const ipRisk = detail.checks.find((c) => c.name === 'ip_risk')}
-		{@const media = detail.checks.filter((c) => c.name !== 'ip_risk')}
-		{#if ipRisk}
+		{@const dnsLeak = detail.checks.find((c) => c.name === 'dns_leak')}
+		{@const media = detail.checks.filter((c) => c.name !== 'ip_risk' && c.name !== 'dns_leak')}
+		{#if ipRisk || dnsLeak}
 			<h2 class="text-lg font-semibold mb-2">
-				IP risk
-				<Help tip="Reputation of the node's exit IP — lower is better. ~0 = clean/residential, ~25 = datacenter, ≥50 = flagged proxy/VPN (likely to be blocked by anti-fraud)." />
+				Security
+				<Help tip="Exit-IP reputation (lower is better: ~0 clean, ~25 datacenter, ≥50 flagged proxy) and DNS-leak (resolver country differs from the exit)." />
 			</h2>
 			<div class="card bg-base-100 shadow mb-6">
-				<div class="card-body flex-row items-center gap-3">
-					<span
-						class="badge badge-lg {(ipRisk.metric ?? 0) >= 50
-							? 'badge-error'
-							: (ipRisk.metric ?? 0) > 0
-								? 'badge-warning'
-								: 'badge-success'}"
-					>
-						{Math.round(ipRisk.metric ?? 0)}% risk
-					</span>
-					{#if ipRisk.detail}
-						<span class="text-sm text-base-content/60">{ipRisk.detail}</span>
+				<div class="card-body flex-row flex-wrap items-center gap-3">
+					{#if ipRisk}
+						<span
+							class="badge badge-lg {(ipRisk.metric ?? 0) >= 50
+								? 'badge-error'
+								: (ipRisk.metric ?? 0) > 0
+									? 'badge-warning'
+									: 'badge-success'}"
+						>
+							{Math.round(ipRisk.metric ?? 0)}% risk
+						</span>
+						{#if ipRisk.detail}
+							<span class="text-sm text-base-content/60">{ipRisk.detail}</span>
+						{/if}
+					{/if}
+					{#if dnsLeak}
+						<span class="badge badge-lg {dnsLeak.passed ? 'badge-success' : 'badge-error'}" title={dnsLeak.detail}>
+							DNS {dnsLeak.passed ? 'ok' : 'leak'}
+						</span>
 					{/if}
 				</div>
 			</div>
