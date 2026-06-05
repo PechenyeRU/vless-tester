@@ -104,6 +104,10 @@ func newTestStore(t *testing.T) *store.Store {
 	// Settings persist across tests (not truncated); reset the ones tests mutate
 	// so each engine test starts from an unrestricted, deterministic baseline.
 	_ = st.SetSetting(ctx, "protocols.enabled", []string{})
+	_ = st.SetSetting(ctx, "output.node_prefix", "")
+	_ = st.SetSetting(ctx, "output.success_limit", 0)
+	_ = st.SetSetting(ctx, "filter.name_include", "")
+	_ = st.SetSetting(ctx, "filter.name_exclude", "")
 	t.Cleanup(st.Close)
 	return st
 }
@@ -284,6 +288,44 @@ func TestEngineLiveApprovalGate(t *testing.T) {
 	}
 	if sum.Approved != 1 {
 		t.Fatalf("relaxed live gate approved %d, want 1", sum.Approved)
+	}
+}
+
+func TestEngineOutputFilters(t *testing.T) {
+	st := newTestStore(t)
+	srv := newSpeedServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+
+	eng := newEngine(st, srv)
+	servers, _ := ingest.ParseList(strings.Join([]string{
+		"vless://uuid@8.8.8.8:443?type=ws#a",
+		"trojan://pw@1.1.1.1:443#b",
+	}, "\n"))
+	if _, err := eng.RunOnce(ctx, servers); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	eng.Prober = failProber{} // re-publish must not retest
+
+	// Exclude FR2 by name regex -> only FR1 remains.
+	_ = st.SetSetting(ctx, "filter.name_exclude", "FR2")
+	sum, err := eng.PublishFromHistory(ctx)
+	if err != nil {
+		t.Fatalf("publish exclude: %v", err)
+	}
+	if sum.Approved != 1 {
+		t.Fatalf("name exclude approved %d, want 1", sum.Approved)
+	}
+
+	// success-limit caps the published count.
+	_ = st.SetSetting(ctx, "filter.name_exclude", "")
+	_ = st.SetSetting(ctx, "output.success_limit", 1)
+	sum, err = eng.PublishFromHistory(ctx)
+	if err != nil {
+		t.Fatalf("publish limit: %v", err)
+	}
+	if sum.Approved != 1 {
+		t.Fatalf("success-limit approved %d, want 1", sum.Approved)
 	}
 }
 

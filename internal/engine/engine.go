@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
@@ -338,10 +339,7 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	if err != nil {
 		return sum, fmt.Errorf("engine: approved servers: %w", err)
 	}
-	sum.Approved = len(approved)
-
 	pubServers := make([]output.PublicServer, 0, len(approved))
-	byCountry := make(map[string]int)
 	for _, a := range approved {
 		country, seqName := a.Country, a.SeqName
 		if seqName == "" {
@@ -361,11 +359,24 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 			SpeedMBps: a.MedianDlMbps,
 			Tags:      output.MediaTags(country, checks),
 		})
-		byCountry[country]++
+	}
+
+	// Output filters (node-prefix, name-regex include/exclude, success-limit) are
+	// applied at publish time, so they re-shape the published list without retest.
+	of, err := e.Store.OutputSettings(ctx)
+	if err != nil {
+		return sum, fmt.Errorf("engine: output settings: %w", err)
+	}
+	pubServers = e.applyOutputFilter(of, pubServers)
+
+	byCountry := make(map[string]int)
+	for _, ps := range pubServers {
+		byCountry[ps.Country]++
 	}
 	sum.ByCountry = byCountry
+	sum.Approved = len(pubServers)
 
-	files, err := output.BuildArtifacts(pubServers, output.Options{Brand: e.Brand})
+	files, err := output.BuildArtifacts(pubServers, output.Options{Brand: e.Brand, Prefix: of.NodePrefix})
 	if err != nil {
 		return sum, err
 	}
@@ -374,7 +385,7 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	// Render and persist the multi-format subscriptions the public /sub endpoint
 	// serves. Done before the git push so a render failure surfaces without
 	// publishing a stale repo.
-	if err := e.persistArtifacts(ctx, pubServers); err != nil {
+	if err := e.persistArtifacts(ctx, pubServers, of.NodePrefix); err != nil {
 		return sum, err
 	}
 
@@ -387,19 +398,58 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	return sum, nil
 }
 
+// applyOutputFilter applies the publish-time output filters: a node-name regex
+// include/exclude and a success-limit cap (the list is already sorted best-first
+// by speed). An invalid regex is logged and ignored (no filtering on that side).
+func (e *Engine) applyOutputFilter(of store.OutputFilter, servers []output.PublicServer) []output.PublicServer {
+	inc := e.compileFilter(of.NameInclude)
+	exc := e.compileFilter(of.NameExclude)
+	out := make([]output.PublicServer, 0, len(servers))
+	for _, ps := range servers {
+		if inc != nil || exc != nil {
+			name := output.NodeName(e.Brand, of.NodePrefix, ps)
+			if inc != nil && !inc.MatchString(name) {
+				continue
+			}
+			if exc != nil && exc.MatchString(name) {
+				continue
+			}
+		}
+		out = append(out, ps)
+	}
+	if of.SuccessLimit > 0 && len(out) > of.SuccessLimit {
+		out = out[:of.SuccessLimit]
+	}
+	return out
+}
+
+// compileFilter compiles a name-filter pattern, returning nil for an empty or
+// invalid pattern (logged), so a bad regex never drops the whole list.
+func (e *Engine) compileFilter(pattern string) *regexp.Regexp {
+	if pattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		e.logf("engine: invalid name filter %q: %v", pattern, err)
+		return nil
+	}
+	return re
+}
+
 // persistArtifacts renders every subscription format from the approved nodes and
 // stores them for the public /sub endpoint. Each rendered format derives only
 // from the public share URI (re-parsed) and the public node name, so the served
 // output carries no inner-working. An approved URI that no longer parses is
 // skipped rather than aborting the whole publish.
-func (e *Engine) persistArtifacts(ctx context.Context, pubServers []output.PublicServer) error {
+func (e *Engine) persistArtifacts(ctx context.Context, pubServers []output.PublicServer, prefix string) error {
 	nodes := make([]convert.Node, 0, len(pubServers))
 	for _, p := range pubServers {
 		srv, err := ingest.Parse(p.RawURI)
 		if err != nil {
 			continue
 		}
-		nodes = append(nodes, convert.Node{Server: srv, Name: output.NodeName(e.Brand, p)})
+		nodes = append(nodes, convert.Node{Server: srv, Name: output.NodeName(e.Brand, prefix, p)})
 	}
 	for _, target := range convert.Targets {
 		content, err := convert.Render(target, nodes)

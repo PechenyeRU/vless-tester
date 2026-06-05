@@ -19,16 +19,24 @@ func sampleServers() []output.PublicServer {
 
 func TestNodeName(t *testing.T) {
 	s := output.PublicServer{Country: "FR", SeqName: "FR1", SpeedMBps: 12.34, Tags: []string{"GPT⁺-FR", "GM-FR"}}
-	got := output.NodeName("@WhiteDNS", s)
+	got := output.NodeName("@WhiteDNS", "", s)
 	want := "🇫🇷 | @WhiteDNS | FR1|12.3MB/s|GPT⁺-FR|GM-FR"
 	if got != want {
 		t.Fatalf("NodeName = %q, want %q", got, want)
 	}
 }
 
+func TestNodeNamePrefix(t *testing.T) {
+	s := output.PublicServer{Country: "FR", SeqName: "FR1", SpeedMBps: 5}
+	got := output.NodeName("@WhiteDNS", "🔥 ", s)
+	if got != "🔥 🇫🇷 | @WhiteDNS | FR1|5.0MB/s" {
+		t.Fatalf("prefixed name = %q", got)
+	}
+}
+
 func TestNodeNameSpeedUnit(t *testing.T) {
 	// Below 1 MB/s renders KB/s (integer), matching the WhiteDNS format.
-	slow := output.NodeName("@WhiteDNS", output.PublicServer{Country: "DE", SeqName: "DE1", SpeedMBps: 0.953})
+	slow := output.NodeName("@WhiteDNS", "", output.PublicServer{Country: "DE", SeqName: "DE1", SpeedMBps: 0.953})
 	if slow != "🇩🇪 | @WhiteDNS | DE1|953KB/s" {
 		t.Fatalf("slow node name = %q", slow)
 	}
@@ -36,7 +44,7 @@ func TestNodeNameSpeedUnit(t *testing.T) {
 
 func TestNodeNameUnknownCountry(t *testing.T) {
 	s := output.PublicServer{Country: "", SeqName: "OT1", SpeedMBps: 1.0}
-	got := output.NodeName("", s)
+	got := output.NodeName("", "", s)
 	if !strings.Contains(got, "@WhiteDNS") || !strings.HasPrefix(got, "❓") {
 		t.Fatalf("unexpected fallback node name: %q", got)
 	}

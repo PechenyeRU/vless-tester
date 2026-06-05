@@ -51,7 +51,11 @@
 		'speed.download_url': 'Edited above in "Speed test" (empty = Cloudflare).',
 		'speed.upload_url': 'Edited above in "Speed test" (empty = Cloudflare).',
 		'speed.download_mb': 'Edited above in "Speed test" (0 = use speed.bytes).',
-		'speed.timeout_ms': 'Edited above in "Speed test" (per-node speed leg timeout).'
+		'speed.timeout_ms': 'Edited above in "Speed test" (per-node speed leg timeout).',
+		'output.node_prefix': 'Edited above in "Output filters" (prepended to each node name).',
+		'output.success_limit': 'Edited above in "Output filters" (0 = unlimited).',
+		'filter.name_include': 'Edited above in "Output filters" (regex; keep only matching names).',
+		'filter.name_exclude': 'Edited above in "Output filters" (regex; drop matching names).'
 	};
 
 	let sources = $state([]);
@@ -84,6 +88,8 @@
 	let notifyBusy = $state(false);
 	// Speed test config.
 	let speed = $state({ download_url: '', upload_url: '', streams: 6, download_mb: 0, timeout_ms: 30000, adaptive: true });
+	// Output filters.
+	let output = $state({ node_prefix: '', success_limit: 0, name_include: '', name_exclude: '' });
 
 	async function load() {
 		error = '';
@@ -108,6 +114,12 @@
 			funnelStages = Array.isArray(fs) && fs.length ? fs.map((s) => ({ ...s })) : FUNNEL_DEFAULT.map((s) => ({ ...s }));
 			notifyEnabled = !!(sett && sett['notify.enabled']);
 			notifyUrls = ((sett && sett['notify.urls']) || []).join('\n');
+			output = {
+				node_prefix: (sett && sett['output.node_prefix']) || '',
+				success_limit: (sett && sett['output.success_limit']) ?? 0,
+				name_include: (sett && sett['filter.name_include']) || '',
+				name_exclude: (sett && sett['filter.name_exclude']) || ''
+			};
 			speed = {
 				download_url: (sett && sett['speed.download_url']) || '',
 				upload_url: (sett && sett['speed.upload_url']) || '',
@@ -170,6 +182,21 @@
 		try {
 			await api.putSettings({ 'notify.enabled': notifyEnabled, 'notify.urls': urls });
 			flash('Notifications saved');
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function saveOutput() {
+		error = '';
+		try {
+			await api.putSettings({
+				'output.node_prefix': output.node_prefix,
+				'output.success_limit': Number(output.success_limit),
+				'filter.name_include': output.name_include.trim(),
+				'filter.name_exclude': output.name_exclude.trim()
+			});
+			flash('Output filters saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -614,6 +641,36 @@
 
 		<div class="mt-3">
 			<button class="btn btn-primary btn-sm" onclick={saveFunnel}>Save funnel</button>
+		</div>
+	</div>
+</div>
+
+<div class="card bg-base-100 shadow mb-6">
+	<div class="card-body">
+		<h2 class="card-title text-lg">
+			Output filters
+			<Help tip="Shape the published list at publish time (no retest). Regex match the full node name (flag | brand | seq|speed|tags). Applied to every output format." />
+		</h2>
+		<div class="grid gap-3 sm:grid-cols-2">
+			<label class="form-control">
+				<span class="label-text mb-1">Keep names matching <span class="text-base-content/50">(regex; empty = all)</span></span>
+				<input class="input input-bordered input-sm mono text-xs" bind:value={output.name_include} placeholder="🇫🇷|🇩🇪" />
+			</label>
+			<label class="form-control">
+				<span class="label-text mb-1">Drop names matching <span class="text-base-content/50">(regex)</span></span>
+				<input class="input input-bordered input-sm mono text-xs" bind:value={output.name_exclude} placeholder="OT|❓" />
+			</label>
+			<label class="form-control">
+				<span class="label-text mb-1">Node prefix <span class="text-base-content/50">(prepended to each name)</span></span>
+				<input class="input input-bordered input-sm mono text-xs" bind:value={output.node_prefix} placeholder="🔥 " />
+			</label>
+			<label class="form-control">
+				<span class="label-text mb-1">Success limit <span class="text-base-content/50">(0 = unlimited)</span></span>
+				<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={output.success_limit} />
+			</label>
+		</div>
+		<div class="mt-3">
+			<button class="btn btn-primary btn-sm" onclick={saveOutput}>Save output filters</button>
 		</div>
 	</div>
 </div>

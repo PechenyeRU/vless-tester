@@ -39,14 +39,15 @@ type PublicServer struct {
 
 // Options tunes artifact generation.
 type Options struct {
-	Brand string // defaults to DefaultBrand
+	Brand  string // defaults to DefaultBrand
+	Prefix string // optional, prepended to every node name (node-prefix)
 }
 
 // NodeName renders the display name in the WhiteDNS format, e.g.
 // "🇫🇷 | @WhiteDNS | FR1|12.3MB/s|GPT⁺-FR|GM-FR". The "{flag} | {brand} | "
 // prefix keeps spaces; the seq, speed and media tags after it are joined by "|"
-// with no spaces.
-func NodeName(brand string, s PublicServer) string {
+// with no spaces. An optional node-prefix is prepended verbatim.
+func NodeName(brand, prefix string, s PublicServer) string {
 	if brand == "" {
 		brand = DefaultBrand
 	}
@@ -55,7 +56,7 @@ func NodeName(brand string, s PublicServer) string {
 		flag = unknownFlag
 	}
 	fields := append([]string{s.SeqName, formatSpeed(s.SpeedMBps)}, s.Tags...)
-	return flag + " | " + brand + " | " + strings.Join(fields, "|")
+	return prefix + flag + " | " + brand + " | " + strings.Join(fields, "|")
 }
 
 // formatSpeed renders throughput like WhiteDNS: KB/s below 1 MB/s, otherwise
@@ -142,7 +143,7 @@ func BuildArtifacts(servers []PublicServer, opts Options) (map[string][]byte, er
 	links := make([]string, 0, len(servers))
 	records := make([]publicRecord, 0, len(servers))
 	for _, s := range servers {
-		name := NodeName(brand, s)
+		name := NodeName(brand, opts.Prefix, s)
 		links = append(links, renameLink(s.RawURI, name))
 		flag := naming.Emoji(s.Country)
 		if flag == "" {
