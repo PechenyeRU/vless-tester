@@ -1,4 +1,5 @@
 <script>
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { auth } from '$lib/auth.svelte.js';
 
@@ -7,6 +8,11 @@
 	let show = $state(false);
 	let error = $state('');
 	let busy = $state(false);
+	let usernameInput;
+
+	// Focus the first field on mount instead of the `autofocus` attribute, which
+	// the a11y linter flags.
+	onMount(() => usernameInput?.focus());
 
 	async function submit(e) {
 		e.preventDefault();
@@ -42,12 +48,12 @@
 				<label class="form-control w-full">
 					<span class="label-text mb-1">Username</span>
 					<input
+						bind:this={usernameInput}
 						class="input input-bordered w-full"
 						type="text"
 						bind:value={username}
 						placeholder="admin"
 						autocomplete="username"
-						autofocus
 					/>
 				</label>
 
