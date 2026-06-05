@@ -17,6 +17,7 @@ import (
 	"github.com/whitedns/vless-tester/internal/api"
 	"github.com/whitedns/vless-tester/internal/engine"
 	"github.com/whitedns/vless-tester/internal/ingest"
+	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
 	"github.com/whitedns/vless-tester/internal/output"
@@ -34,6 +35,11 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Tee the coordinator log into an in-memory ring buffer so the admin
+	// dashboard can poll recent lines (GET /api/v1/logs).
+	logs := logbuf.New(1000)
+	log.SetOutput(io.MultiWriter(os.Stderr, logs))
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -146,7 +152,7 @@ func run() error {
 	// domains served on one listener.
 	srv := &http.Server{
 		Addr:              apiAddr(),
-		Handler:           buildHTTP(st, sched),
+		Handler:           buildHTTP(st, sched, logs),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
@@ -174,13 +180,14 @@ func run() error {
 // mux. The two planes have separate bearer tokens, so a compromised worker
 // cannot reach the mutating admin endpoints. Admin actions map to scheduler
 // triggers, the single source of out-of-band runs.
-func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
+func buildHTTP(st *store.Store, sched *scheduler.Scheduler, logs *logbuf.Hub) http.Handler {
 	worker := (&api.Server{Store: st, Tokens: st, Logf: log.Printf}).Handler()
 	adminUser := os.Getenv("ADMIN_USER")
 	if adminUser == "" {
 		adminUser = "admin"
 	}
 	admin := (&api.AdminServer{
+		Logs:     logs,
 		Store:    st,
 		Username: adminUser,
 		Password: os.Getenv("ADMIN_PASSWORD"),
@@ -210,6 +217,8 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
 	mux.Handle("/api/v1/servers/", admin)
 	mux.Handle("/api/v1/workers", admin)
 	mux.Handle("/api/v1/stats", admin)
+	mux.Handle("/api/v1/progress", admin)
+	mux.Handle("/api/v1/logs", admin)
 	mux.Handle("/api/v1/sources", admin)
 	mux.Handle("/api/v1/settings", admin)
 	mux.Handle("/api/v1/actions/", admin)

@@ -60,6 +60,8 @@ export const api = {
 	server: (id) => req('GET', '/servers/' + id),
 	workers: () => req('GET', '/workers'),
 	stats: () => req('GET', '/stats'),
+	progress: () => req('GET', '/progress'),
+	logs: (since = 0) => req('GET', '/logs?since=' + since),
 	sources: () => req('GET', '/sources'),
 	upsertSource: (kind, location) => req('PUT', '/sources', { kind, location }),
 	toggleSource: (id, enabled) => req('PUT', '/sources', { id, enabled }),

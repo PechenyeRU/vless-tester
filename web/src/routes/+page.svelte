@@ -1,13 +1,44 @@
 <script>
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api.js';
-	import { flag, mbps, ago } from '$lib/format.js';
+	import { flag, mbps, ago, dur } from '$lib/format.js';
 	import Help from '$lib/Help.svelte';
 
 	let stats = $state(null);
 	let workers = $state([]);
 	let error = $state('');
 	let loading = $state(true);
+
+	// Live cycle progress + log tail (polled).
+	let progress = $state(null);
+	let logLines = $state([]);
+	let logSeq = $state(0);
+	let autoScroll = $state(true);
+	let logEl;
+
+	async function pollLive() {
+		try {
+			progress = await api.progress();
+			const r = await api.logs(logSeq);
+			if (r && r.lines && r.lines.length) {
+				logLines = [...logLines, ...r.lines].slice(-300);
+				logSeq = r.next_seq;
+			}
+		} catch {
+			/* transient; keep last good state */
+		}
+	}
+
+	// Keep the log view pinned to the newest line unless the user scrolled up.
+	$effect(() => {
+		logLines;
+		if (autoScroll && logEl) logEl.scrollTop = logEl.scrollHeight;
+	});
+
+	function onLogScroll() {
+		if (!logEl) return;
+		autoScroll = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
+	}
 
 	async function load() {
 		loading = true;
@@ -50,7 +81,12 @@
 		}
 	}
 
-	onMount(load);
+	onMount(() => {
+		load();
+		pollLive();
+		const id = setInterval(pollLive, 2000);
+		return () => clearInterval(id);
+	});
 </script>
 
 <div class="flex items-center justify-between mb-4">
@@ -97,6 +133,57 @@
 				Countries <Help tip="Distinct countries among tested nodes (GeoIP on the exit IP)." pos="bottom" />
 			</div>
 			<div class="stat-value">{(stats.by_country || []).length}</div>
+		</div>
+	</div>
+
+	<div class="card bg-base-100 shadow mb-6">
+		<div class="card-body">
+			<h2 class="text-lg font-semibold">
+				Test cycle
+				<Help tip="Progress of the in-flight test cycle (the current batch of jobs across the fleet). ETA is extrapolated from the completion rate so far." />
+			</h2>
+			{#if progress?.active}
+				<div class="flex flex-wrap items-center justify-between gap-x-3 text-sm mb-1">
+					<span>{progress.completed} / {progress.total} jobs · {Math.round(progress.percent)}%</span>
+					<span class="text-base-content/60">
+						ETA {dur(progress.eta_seconds)} · {progress.per_minute
+							? Math.round(progress.per_minute) + '/min'
+							: '—'} · elapsed {dur(progress.elapsed_seconds)}
+					</span>
+				</div>
+				<progress class="progress progress-primary w-full" value={progress.percent} max="100"></progress>
+				<div class="flex gap-2 mt-2 text-xs">
+					<span class="badge badge-success badge-sm">done {progress.done}</span>
+					<span class="badge badge-error badge-sm">failed {progress.failed}</span>
+					<span class="badge badge-ghost badge-sm">open {progress.open}</span>
+				</div>
+			{:else}
+				<p class="text-sm text-base-content/60">
+					Idle — no test cycle running. Trigger one from
+					<a class="link" href="/admin">Admin → Actions</a>.
+				</p>
+			{/if}
+
+			<div class="mt-4">
+				<div class="flex items-center justify-between mb-1">
+					<span class="label-text text-sm">
+						Live log
+						<Help tip="Recent coordinator log lines, polled every 2s. Scroll up to pause auto-follow." />
+					</span>
+					<span class="text-xs text-base-content/50">{autoScroll ? 'following' : 'paused'}</span>
+				</div>
+				<div
+					bind:this={logEl}
+					onscroll={onLogScroll}
+					class="mono text-xs bg-base-300/50 rounded-lg p-3 h-56 overflow-y-auto whitespace-pre-wrap"
+				>
+					{#each logLines as l (l.seq)}
+						<div class="text-base-content/80">{l.msg}</div>
+					{:else}
+						<div class="text-base-content/40">No log lines yet.</div>
+					{/each}
+				</div>
+			</div>
 		</div>
 	</div>
 

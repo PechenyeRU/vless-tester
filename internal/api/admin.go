@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/store"
 )
@@ -40,6 +41,13 @@ type AdminStore interface {
 	ListWorkerTokens(ctx context.Context) ([]model.WorkerToken, error)
 	DeleteWorkerToken(ctx context.Context, id int64) (bool, error)
 	SetWorkerTokenProtocols(ctx context.Context, id int64, protocols []string) (bool, error)
+	CycleProgress(ctx context.Context) (store.CycleProgress, error)
+}
+
+// LogSource exposes recent log lines for the live-log endpoint. *logbuf.Hub
+// satisfies it; a nil source disables the endpoint.
+type LogSource interface {
+	Since(seq int64) ([]logbuf.Entry, int64)
 }
 
 // actions are the manual triggers the admin UI can fire. The coordinator maps
@@ -67,6 +75,8 @@ type AdminServer struct {
 	// Action triggers an out-of-band coordinator job by name (one of adminActions).
 	// nil disables the action endpoints (they return 503).
 	Action func(name string) error
+	// Logs is the recent-log source for the live-log endpoint; nil disables it.
+	Logs LogSource
 	// Logf is an optional logger; nil discards.
 	Logf func(format string, args ...any)
 
@@ -146,6 +156,8 @@ func (s *AdminServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/servers/{id}", s.handleServerDetail)
 	mux.HandleFunc("GET /api/v1/workers", s.handleWorkers)
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
+	mux.HandleFunc("GET /api/v1/progress", s.handleProgress)
+	mux.HandleFunc("GET /api/v1/logs", s.handleLogs)
 	mux.HandleFunc("GET /api/v1/sources", s.handleListSources)
 	mux.HandleFunc("PUT /api/v1/sources", s.handlePutSource)
 	mux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
@@ -442,6 +454,66 @@ func (s *AdminServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// --- GET /progress ---
+
+// progressView is the in-flight cycle progress with a derived percent and ETA.
+type progressView struct {
+	Active         bool    `json:"active"`
+	BatchID        int64   `json:"batch_id,omitempty"`
+	Total          int     `json:"total"`
+	Completed      int     `json:"completed"`
+	Open           int     `json:"open"`
+	Done           int     `json:"done"`
+	Failed         int     `json:"failed"`
+	Percent        float64 `json:"percent"`
+	ElapsedSeconds float64 `json:"elapsed_seconds"`
+	EtaSeconds     float64 `json:"eta_seconds"` // -1 when not yet estimable
+	PerMinute      float64 `json:"per_minute"`
+}
+
+func (s *AdminServer) handleProgress(w http.ResponseWriter, r *http.Request) {
+	cp, err := s.Store.CycleProgress(r.Context())
+	if err != nil {
+		s.logf("api: progress: %v", err)
+		writeErr(w, http.StatusInternalServerError, "progress failed")
+		return
+	}
+	v := progressView{
+		Active: cp.Active, BatchID: cp.BatchID, Total: cp.Total,
+		Done: cp.Done, Failed: cp.Failed, Open: cp.Open,
+		Completed: cp.Done + cp.Failed, EtaSeconds: -1,
+	}
+	if cp.Active && cp.Total > 0 {
+		v.Percent = float64(v.Completed) / float64(cp.Total) * 100
+		elapsed := time.Since(cp.StartedAt).Seconds()
+		v.ElapsedSeconds = elapsed
+		if v.Completed > 0 && elapsed > 0 {
+			rate := float64(v.Completed) / elapsed // jobs/sec
+			v.PerMinute = rate * 60
+			v.EtaSeconds = float64(v.Open) / rate
+		}
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// --- GET /logs ---
+
+func (s *AdminServer) handleLogs(w http.ResponseWriter, r *http.Request) {
+	var since int64
+	if v := r.URL.Query().Get("since"); v != "" {
+		since, _ = strconv.ParseInt(v, 10, 64)
+	}
+	var lines []logbuf.Entry
+	var next int64
+	if s.Logs != nil {
+		lines, next = s.Logs.Since(since)
+	}
+	if lines == nil {
+		lines = []logbuf.Entry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "next_seq": next})
 }
 
 // --- GET/PUT /sources ---

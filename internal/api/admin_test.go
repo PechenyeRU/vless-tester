@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/store"
 )
@@ -26,6 +27,7 @@ type fakeAdminStore struct {
 	serverChecks     []model.CheckOutcome
 	workers          []model.Worker
 	stats            store.Stats
+	progress         store.CycleProgress
 	sources          []model.Source
 	settings         map[string]json.RawMessage
 	upserted         []model.Source
@@ -68,6 +70,9 @@ func (f *fakeAdminStore) ListWorkers(_ context.Context) ([]model.Worker, error) 
 	return f.workers, nil
 }
 func (f *fakeAdminStore) Stats(_ context.Context) (store.Stats, error) { return f.stats, nil }
+func (f *fakeAdminStore) CycleProgress(_ context.Context) (store.CycleProgress, error) {
+	return f.progress, nil
+}
 func (f *fakeAdminStore) ListAllSources(_ context.Context) ([]model.Source, error) {
 	return f.sources, nil
 }
@@ -188,6 +193,65 @@ func TestAdminSessionExpiry(t *testing.T) {
 	token := loginToken(t, s, "admin", "hunter2")
 	if rec := do(t, s, http.MethodGet, "/api/v1/stats", token, ``); rec.Code != http.StatusOK {
 		t.Fatalf("default ttl session: want 200, got %d", rec.Code)
+	}
+}
+
+func TestAdminProgress(t *testing.T) {
+	f := newAdminFake()
+	f.progress = store.CycleProgress{
+		Active: true, BatchID: 4, Total: 10, Done: 4, Failed: 1, Open: 5,
+		StartedAt: time.Now().Add(-50 * time.Second),
+	}
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodGet, "/api/v1/progress", "", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var v struct {
+		Active     bool
+		Completed  int
+		Percent    float64
+		EtaSeconds float64 `json:"eta_seconds"`
+	}
+	mustJSON(t, rec, &v)
+	if !v.Active || v.Completed != 5 || v.Percent != 50 {
+		t.Fatalf("progress = %+v", v)
+	}
+	if v.EtaSeconds <= 0 {
+		t.Fatalf("expected a positive ETA, got %v", v.EtaSeconds)
+	}
+}
+
+func TestAdminProgressIdle(t *testing.T) {
+	f := newAdminFake()
+	f.progress = store.CycleProgress{Active: false}
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodGet, "/api/v1/progress", "", ``)
+	var v struct {
+		Active     bool
+		EtaSeconds float64 `json:"eta_seconds"`
+	}
+	mustJSON(t, rec, &v)
+	if v.Active || v.EtaSeconds != -1 {
+		t.Fatalf("idle progress = %+v", v)
+	}
+}
+
+func TestAdminLogs(t *testing.T) {
+	hub := logbuf.New(10)
+	hub.Write([]byte("hello world\nsecond\n"))
+	s := &AdminServer{Store: newAdminFake(), Logs: hub}
+	rec := do(t, s, http.MethodGet, "/api/v1/logs?since=0", "", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var v struct {
+		Lines   []logbuf.Entry `json:"lines"`
+		NextSeq int64          `json:"next_seq"`
+	}
+	mustJSON(t, rec, &v)
+	if len(v.Lines) != 2 || v.NextSeq != 2 || v.Lines[0].Msg != "hello world" {
+		t.Fatalf("logs = %+v (next=%d)", v.Lines, v.NextSeq)
 	}
 }
 

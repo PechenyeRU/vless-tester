@@ -31,6 +31,19 @@ export function ago(ts, now = Date.now()) {
 	return `${Math.floor(secs / 86400)}d`;
 }
 
+// dur formats a duration in seconds as a compact string (e.g. "45s", "2m 30s",
+// "1h 5m"). Negative/absent renders a dash.
+export function dur(secs) {
+	if (secs == null || secs < 0) return '—';
+	secs = Math.round(secs);
+	if (secs < 60) return `${secs}s`;
+	const m = Math.floor(secs / 60);
+	const s = secs % 60;
+	if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+	const h = Math.floor(m / 60);
+	return `${h}h ${m % 60}m`;
+}
+
 // statusClass maps a run/server status to a daisyUI badge modifier.
 export function statusClass(status) {
 	if (status === 'ok') return 'badge-success';
