@@ -1,0 +1,27 @@
+# Local design/planning docs (Italian working notes — never publish, OSINT requirement)
+DESIGN.md
+PLAN.md
+
+# Environment and secrets
+.env
+*.env
+!.env.example
+
+# Build artifacts
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Go
+vendor/
+
+# GeoIP database cache
+*.mmdb
+geoip/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
