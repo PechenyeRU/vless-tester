@@ -46,11 +46,21 @@ func TestCycleProgress(t *testing.T) {
 		t.Error("started_at not set")
 	}
 
-	// Finishing the batch returns to idle.
-	if err := st.FinishBatch(ctx, batch); err != nil {
-		t.Fatalf("finish: %v", err)
+	// Cancelling fails the open jobs and returns to idle (no publish).
+	cancelled, err := st.CancelActiveCycle(ctx)
+	if err != nil || !cancelled {
+		t.Fatalf("cancel: cancelled=%v err=%v", cancelled, err)
 	}
 	if cp, _ := st.CycleProgress(ctx); cp.Active {
-		t.Fatalf("after finish: still active")
+		t.Fatalf("after cancel: still active")
+	}
+	var open int
+	_ = st.Pool().QueryRow(ctx, `SELECT count(*) FROM jobs WHERE batch_id=$1 AND state IN ('queued','claimed')`, batch).Scan(&open)
+	if open != 0 {
+		t.Fatalf("cancel left %d open jobs", open)
+	}
+	// Cancelling again is a no-op (nothing active).
+	if cancelled, _ := st.CancelActiveCycle(ctx); cancelled {
+		t.Fatalf("second cancel should be a no-op")
 	}
 }

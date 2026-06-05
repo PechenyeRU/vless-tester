@@ -43,6 +43,7 @@ type AdminStore interface {
 	DeleteWorkerToken(ctx context.Context, id int64) (bool, error)
 	SetWorkerTokenProtocols(ctx context.Context, id int64, protocols []string) (bool, error)
 	CycleProgress(ctx context.Context) (store.CycleProgress, error)
+	CancelActiveCycle(ctx context.Context) (bool, error)
 	NotifySettings(ctx context.Context) (enabled bool, urls []string, err error)
 }
 
@@ -159,6 +160,7 @@ func (s *AdminServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/workers", s.handleWorkers)
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
 	mux.HandleFunc("GET /api/v1/progress", s.handleProgress)
+	mux.HandleFunc("POST /api/v1/cancel-cycle", s.handleCancelCycle)
 	mux.HandleFunc("GET /api/v1/logs", s.handleLogs)
 	mux.HandleFunc("POST /api/v1/notify-test", s.handleNotifyTest)
 	mux.HandleFunc("GET /api/v1/sources", s.handleListSources)
@@ -499,6 +501,20 @@ func (s *AdminServer) handleProgress(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+// --- POST /cancel-cycle ---
+
+// handleCancelCycle aborts the in-flight test cycle (fails its open jobs and
+// finishes the batch without publishing).
+func (s *AdminServer) handleCancelCycle(w http.ResponseWriter, r *http.Request) {
+	cancelled, err := s.Store.CancelActiveCycle(r.Context())
+	if err != nil {
+		s.logf("api: cancel cycle: %v", err)
+		writeErr(w, http.StatusInternalServerError, "cancel failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"cancelled": cancelled})
 }
 
 // --- POST /notify-test ---

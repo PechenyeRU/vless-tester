@@ -31,6 +31,7 @@ type fakeAdminStore struct {
 	progress         store.CycleProgress
 	notifyEnabled    bool
 	notifyURLs       []string
+	cancelled        bool
 	sources          []model.Source
 	settings         map[string]json.RawMessage
 	upserted         []model.Source
@@ -78,6 +79,10 @@ func (f *fakeAdminStore) CycleProgress(_ context.Context) (store.CycleProgress, 
 }
 func (f *fakeAdminStore) NotifySettings(_ context.Context) (bool, []string, error) {
 	return f.notifyEnabled, f.notifyURLs, nil
+}
+func (f *fakeAdminStore) CancelActiveCycle(_ context.Context) (bool, error) {
+	f.cancelled = true
+	return true, nil
 }
 func (f *fakeAdminStore) ListAllSources(_ context.Context) ([]model.Source, error) {
 	return f.sources, nil
@@ -258,6 +263,18 @@ func TestAdminLogs(t *testing.T) {
 	mustJSON(t, rec, &v)
 	if len(v.Lines) != 2 || v.NextSeq != 2 || v.Lines[0].Msg != "hello world" {
 		t.Fatalf("logs = %+v (next=%d)", v.Lines, v.NextSeq)
+	}
+}
+
+func TestAdminCancelCycle(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPost, "/api/v1/cancel-cycle", "", ``)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if !f.cancelled {
+		t.Fatal("store CancelActiveCycle was not called")
 	}
 }
 

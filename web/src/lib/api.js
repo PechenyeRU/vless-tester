@@ -61,6 +61,7 @@ export const api = {
 	workers: () => req('GET', '/workers'),
 	stats: () => req('GET', '/stats'),
 	progress: () => req('GET', '/progress'),
+	cancelCycle: () => req('POST', '/cancel-cycle'),
 	logs: (since = 0) => req('GET', '/logs?since=' + since),
 	sources: () => req('GET', '/sources'),
 	upsertSource: (kind, location) => req('PUT', '/sources', { kind, location }),

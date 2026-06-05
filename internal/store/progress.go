@@ -47,3 +47,25 @@ func (s *Store) CycleProgress(ctx context.Context) (CycleProgress, error) {
 	}
 	return cp, nil
 }
+
+// CancelActiveCycle aborts the in-flight cycle: it fails the active batch's open
+// jobs and finishes the batch without publishing. cancelled is false when no
+// cycle is active.
+func (s *Store) CancelActiveCycle(ctx context.Context) (cancelled bool, err error) {
+	id, active, err := s.LatestUnfinishedBatch(ctx)
+	if err != nil {
+		return false, fmt.Errorf("cancel cycle: latest batch: %w", err)
+	}
+	if !active {
+		return false, nil
+	}
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE jobs SET state = 'failed' WHERE batch_id = $1 AND state IN ('queued', 'claimed')`, id,
+	); err != nil {
+		return false, fmt.Errorf("cancel cycle: fail jobs: %w", err)
+	}
+	if err := s.FinishBatch(ctx, id); err != nil {
+		return false, fmt.Errorf("cancel cycle: finish: %w", err)
+	}
+	return true, nil
+}

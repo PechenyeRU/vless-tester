@@ -218,6 +218,7 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler, logs *logbuf.Hub) ht
 	mux.Handle("/api/v1/workers", admin)
 	mux.Handle("/api/v1/stats", admin)
 	mux.Handle("/api/v1/progress", admin)
+	mux.Handle("/api/v1/cancel-cycle", admin)
 	mux.Handle("/api/v1/logs", admin)
 	mux.Handle("/api/v1/notify-test", admin)
 	mux.Handle("/api/v1/sources", admin)

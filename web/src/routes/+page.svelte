@@ -40,6 +40,20 @@
 		autoScroll = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
 	}
 
+	let cancelling = $state(false);
+	async function cancelCycle() {
+		if (!confirm('Cancel the running cycle? Open jobs are dropped and the batch is closed without publishing.')) return;
+		cancelling = true;
+		try {
+			await api.cancelCycle();
+			await pollLive();
+		} catch (e) {
+			error = e.message;
+		} finally {
+			cancelling = false;
+		}
+	}
+
 	async function load() {
 		loading = true;
 		error = '';
@@ -138,10 +152,18 @@
 
 	<div class="card bg-base-100 shadow mb-6">
 		<div class="card-body">
-			<h2 class="text-lg font-semibold">
-				Test cycle
-				<Help tip="Progress of the in-flight test cycle (the current batch of jobs across the fleet). ETA is extrapolated from the completion rate so far." />
-			</h2>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">
+					Test cycle
+					<Help tip="Progress of the in-flight test cycle (the current batch of jobs across the fleet). ETA is extrapolated from the completion rate so far." />
+				</h2>
+				{#if progress?.active}
+					<button class="btn btn-xs btn-error btn-outline" onclick={cancelCycle} disabled={cancelling}>
+						{#if cancelling}<span class="loading loading-spinner loading-xs"></span>{/if}
+						Cancel cycle
+					</button>
+				{/if}
+			</div>
 			{#if progress?.active}
 				<div class="flex flex-wrap items-center justify-between gap-x-3 text-sm mb-1">
 					<span>{progress.completed} / {progress.total} jobs · {Math.round(progress.percent)}%</span>
