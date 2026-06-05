@@ -104,30 +104,57 @@ func (f *fakeAdminStore) SetWorkerTokenProtocols(_ context.Context, id int64, pr
 	return true, nil
 }
 
-func TestAdminAuth(t *testing.T) {
-	s := &AdminServer{Store: newAdminFake(), Token: "admin"}
-	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "", ``); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("missing token: want 401, got %d", rec.Code)
-	}
-	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "admin", ``); rec.Code != http.StatusOK {
-		t.Fatalf("correct token: want 200, got %d", rec.Code)
-	}
-}
-
-func TestAdminLogin(t *testing.T) {
-	s := &AdminServer{Store: newAdminFake(), Token: "secret-token", Username: "admin", Password: "hunter2"}
-
-	// Valid credentials return the bearer token.
-	rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"admin","password":"hunter2"}`)
+// loginToken drives /login and returns the minted session token.
+func loginToken(t *testing.T, s *AdminServer, user, pass string) string {
+	t.Helper()
+	rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"`+user+`","password":"`+pass+`"}`)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("valid login: want 200, got %d (%s)", rec.Code, rec.Body)
+		t.Fatalf("login: want 200, got %d (%s)", rec.Code, rec.Body)
 	}
 	var out struct{ Token string }
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode login: %v", err)
 	}
-	if out.Token != "secret-token" {
-		t.Fatalf("login token = %q, want secret-token", out.Token)
+	if out.Token == "" {
+		t.Fatal("login returned an empty token")
+	}
+	return out.Token
+}
+
+func TestAdminAuth(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Username: "admin", Password: "hunter2"}
+
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "", ``); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token: want 401, got %d", rec.Code)
+	}
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "not-a-session", ``); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bogus token: want 401, got %d", rec.Code)
+	}
+	token := loginToken(t, s, "admin", "hunter2")
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", token, ``); rec.Code != http.StatusOK {
+		t.Fatalf("session token: want 200, got %d", rec.Code)
+	}
+}
+
+func TestAdminAuthDisabledWithoutPassword(t *testing.T) {
+	// No password configured: the plane is open (dev only) and /login is 503.
+	s := &AdminServer{Store: newAdminFake(), Username: "admin"}
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", "", ``); rec.Code != http.StatusOK {
+		t.Fatalf("dev-open: want 200, got %d", rec.Code)
+	}
+	if rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"admin","password":"x"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("login without creds: want 503, got %d", rec.Code)
+	}
+}
+
+func TestAdminLogin(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Username: "admin", Password: "hunter2"}
+
+	// Each login mints a distinct session token.
+	t1 := loginToken(t, s, "admin", "hunter2")
+	t2 := loginToken(t, s, "admin", "hunter2")
+	if t1 == t2 {
+		t.Fatal("expected distinct session tokens per login")
 	}
 
 	// Wrong password and wrong username are both rejected.
@@ -139,17 +166,35 @@ func TestAdminLogin(t *testing.T) {
 	}
 }
 
-func TestAdminLoginPasswordFallsBackToToken(t *testing.T) {
-	// With no explicit password, the token doubles as the password.
-	s := &AdminServer{Store: newAdminFake(), Token: "the-token", Username: "admin"}
-	if rec := do(t, s, http.MethodPost, "/api/v1/login", "", `{"username":"admin","password":"the-token"}`); rec.Code != http.StatusOK {
-		t.Fatalf("token-as-password: want 200, got %d", rec.Code)
+func TestAdminLogout(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Username: "admin", Password: "hunter2"}
+	token := loginToken(t, s, "admin", "hunter2")
+
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", token, ``); rec.Code != http.StatusOK {
+		t.Fatalf("before logout: want 200, got %d", rec.Code)
+	}
+	if rec := do(t, s, http.MethodPost, "/api/v1/logout", token, ``); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout: want 204, got %d", rec.Code)
+	}
+	// The revoked token no longer authenticates.
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", token, ``); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("after logout: want 401, got %d", rec.Code)
+	}
+}
+
+func TestAdminSessionExpiry(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake(), Username: "admin", Password: "hunter2", SessionTTL: -1}
+	// A non-positive TTL falls back to the default, so the session is live.
+	token := loginToken(t, s, "admin", "hunter2")
+	if rec := do(t, s, http.MethodGet, "/api/v1/stats", token, ``); rec.Code != http.StatusOK {
+		t.Fatalf("default ttl session: want 200, got %d", rec.Code)
 	}
 }
 
 func TestAdminWorkerTokenCRUD(t *testing.T) {
 	f := newAdminFake()
-	s := &AdminServer{Store: f, Token: "admin"}
+	// No password configured: auth is dev-open, so this test exercises CRUD only.
+	s := &AdminServer{Store: f}
 
 	// Create returns the secret once.
 	rec := do(t, s, http.MethodPost, "/api/v1/worker-tokens", "admin", `{"name":"home-vps"}`)

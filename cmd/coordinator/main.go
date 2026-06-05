@@ -182,7 +182,6 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
 	}
 	admin := (&api.AdminServer{
 		Store:    st,
-		Token:    os.Getenv("ADMIN_TOKEN"),
 		Username: adminUser,
 		Password: os.Getenv("ADMIN_PASSWORD"),
 		Logf:     log.Printf,
@@ -217,6 +216,7 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
 	mux.Handle("/api/v1/worker-tokens", admin)
 	mux.Handle("/api/v1/worker-tokens/", admin)
 	mux.Handle("/api/v1/login", admin)
+	mux.Handle("/api/v1/logout", admin)
 	// Public subscription distribution endpoint (no auth): clients fetch the
 	// working list here in their preferred format. Serves public data only.
 	mux.Handle("/sub", (&api.SubServer{Store: st, Logf: log.Printf}).Handler())

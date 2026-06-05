@@ -2,9 +2,9 @@ import { browser } from '$app/environment';
 import { getToken, setToken } from '$lib/api.js';
 
 // auth holds the admin session. Users sign in with a username + password; the
-// coordinator validates them and returns the bearer token that api.js attaches
-// to every request. The token is kept in localStorage so the session survives a
-// reload. State is a rune so the layout guard reacts to login/logout.
+// coordinator validates them and mints a session bearer token that api.js
+// attaches to every request. The token is kept in localStorage so the session
+// survives a reload. State is a rune so the layout guard reacts to login/logout.
 let token = $state(browser ? getToken() : '');
 
 export const auth = {
@@ -37,8 +37,21 @@ export const auth = {
 		setToken(data.token);
 		token = data.token;
 	},
+	// logout clears the session locally first (so the UI reacts immediately), then
+	// best-effort revokes it server-side. The revoke uses a direct fetch rather
+	// than the api client so a 401 cannot re-trigger the onUnauthorized handler
+	// that may have called logout in the first place.
 	logout() {
+		const current = token;
 		setToken('');
 		token = '';
+		if (current) {
+			fetch('/api/v1/logout', {
+				method: 'POST',
+				headers: { Authorization: 'Bearer ' + current }
+			}).catch(() => {
+				/* token already invalid or coordinator unreachable; ignore */
+			});
+		}
 	}
 };

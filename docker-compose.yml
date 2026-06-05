@@ -26,8 +26,8 @@ services:
     environment:
       DATABASE_URL: postgres://vless:vless@postgres:5432/vless_tester?sslmode=disable
       API_ADDR: ":8080"
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
-      # Dashboard login (humans sign in with these; defaults admin / admin).
+      # Dashboard login: humans sign in with these and the coordinator mints a
+      # session token. Defaults admin / admin for local dev.
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       # GeoIP is optional: it downloads only when MaxMind credentials are set.

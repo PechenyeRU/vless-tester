@@ -8,11 +8,14 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/model"
@@ -48,30 +51,86 @@ var adminActions = map[string]bool{
 	"refresh-geoip":   true,
 }
 
-// AdminServer serves the admin/read API.
+// AdminServer serves the admin/read API. Authentication is session-based: a
+// successful /login mints a random bearer token held in memory, which every
+// other request must present. There is no static admin secret, and sessions do
+// not survive a restart. When no password is configured, auth is disabled (dev
+// only).
 type AdminServer struct {
 	Store AdminStore
-	// Token is the admin bearer secret. When empty, auth is disabled (dev only).
-	Token string
-	// Username and Password gate the human-facing /login endpoint, which exchanges
-	// them for Token. When Password is empty it falls back to Token, so a
-	// deployment that only sets ADMIN_TOKEN can still sign in (password = token).
+	// Username and Password are the admin credentials /login checks. When Password
+	// is empty, the admin plane is unauthenticated (dev only).
 	Username string
 	Password string
+	// SessionTTL is how long a minted session stays valid; <=0 uses the default.
+	SessionTTL time.Duration
 	// Action triggers an out-of-band coordinator job by name (one of adminActions).
 	// nil disables the action endpoints (they return 503).
 	Action func(name string) error
 	// Logf is an optional logger; nil discards.
 	Logf func(format string, args ...any)
+
+	mu       sync.Mutex
+	sessions map[string]time.Time // token -> expiry
 }
 
-// loginPassword is the secret /login accepts, falling back to the bearer token
-// when no explicit password is configured.
-func (s *AdminServer) loginPassword() string {
-	if s.Password != "" {
-		return s.Password
+// defaultSessionTTL bounds how long a login stays valid.
+const defaultSessionTTL = 12 * time.Hour
+
+// authEnabled reports whether the admin plane requires authentication. Without a
+// configured password there is no credential to mint sessions from, so the plane
+// is left open (dev only).
+func (s *AdminServer) authEnabled() bool { return s.Password != "" }
+
+func (s *AdminServer) sessionTTL() time.Duration {
+	if s.SessionTTL > 0 {
+		return s.SessionTTL
 	}
-	return s.Token
+	return defaultSessionTTL
+}
+
+// newSession mints and stores a random bearer token, pruning expired ones.
+func (s *AdminServer) newSession() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions == nil {
+		s.sessions = make(map[string]time.Time)
+	}
+	now := time.Now()
+	for t, exp := range s.sessions {
+		if now.After(exp) {
+			delete(s.sessions, t)
+		}
+	}
+	s.sessions[token] = now.Add(s.sessionTTL())
+	return token, nil
+}
+
+// validSession reports whether token is a live session, dropping it if expired.
+func (s *AdminServer) validSession(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	exp, ok := s.sessions[token]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(s.sessions, token)
+		return false
+	}
+	return true
+}
+
+// revokeSession drops a session token (logout).
+func (s *AdminServer) revokeSession(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, token)
 }
 
 func (s *AdminServer) logf(format string, args ...any) {
@@ -97,8 +156,9 @@ func (s *AdminServer) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/worker-tokens/{id}", s.handleSetWorkerTokenProtocols)
 	mux.HandleFunc("DELETE /api/v1/worker-tokens/{id}", s.handleDeleteWorkerToken)
 	mux.HandleFunc("POST /api/v1/login", s.handleLogin)
-	if s.Token == "" {
-		s.logf("api: WARNING no admin token configured, admin plane is unauthenticated")
+	mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
+	if !s.authEnabled() {
+		s.logf("api: WARNING no admin password configured, admin plane is unauthenticated")
 	}
 	return s.withAuth(mux)
 }
@@ -106,12 +166,17 @@ func (s *AdminServer) Handler() http.Handler {
 func (s *AdminServer) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// /login is the unauthenticated entry point: it validates credentials
-		// itself and hands back the bearer token used for every other call.
+		// itself and hands back the session token used for every other call.
 		if r.URL.Path == "/api/v1/login" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if s.Token != "" && r.Header.Get("Authorization") != "Bearer "+s.Token {
+		if !s.authEnabled() {
+			next.ServeHTTP(w, r) // dev-open: no credentials configured
+			return
+		}
+		bearer := bearerToken(r)
+		if bearer == "" || !s.validSession(bearer) {
 			writeErr(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -230,10 +295,11 @@ type loginReq struct {
 	Password string `json:"password"`
 }
 
-// handleLogin exchanges a username/password for the admin bearer token, so the
-// dashboard can offer a human login instead of asking users to paste a token.
+// handleLogin validates the admin credentials and mints a fresh session token
+// the dashboard then attaches to every request. There is no static secret to
+// hand out: each login gets its own in-memory token.
 func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if s.Token == "" {
+	if !s.authEnabled() {
 		writeErr(w, http.StatusServiceUnavailable, "login unavailable: no admin credentials configured")
 		return
 	}
@@ -243,12 +309,26 @@ func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userOK := subtle.ConstantTimeCompare([]byte(req.Username), []byte(s.Username)) == 1
-	passOK := subtle.ConstantTimeCompare([]byte(req.Password), []byte(s.loginPassword())) == 1
+	passOK := subtle.ConstantTimeCompare([]byte(req.Password), []byte(s.Password)) == 1
 	if !userOK || !passOK {
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"token": s.Token})
+	token, err := s.newSession()
+	if err != nil {
+		s.logf("api: mint session: %v", err)
+		writeErr(w, http.StatusInternalServerError, "could not start session")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// handleLogout revokes the caller's session token. It is reached only through
+// withAuth, so the bearer is a live session; revoking it makes it unusable
+// immediately rather than waiting for the TTL.
+func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.revokeSession(bearerToken(r))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- GET /servers ---
