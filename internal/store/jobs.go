@@ -9,14 +9,14 @@ import (
 	"github.com/whitedns/vless-tester/internal/model"
 )
 
-// EnqueueJob queues a job for a server/phase. The partial unique index keeps at
-// most one open job per (server, phase), so re-enqueuing is a no-op and the
-// returned bool reports whether a new job was created.
+// EnqueueJob queues a single (slot 0) job for a server/phase. The partial unique
+// index keeps at most one open job per (server, phase, slot), so re-enqueuing is
+// a no-op and the returned bool reports whether a new job was created.
 func (s *Store) EnqueueJob(ctx context.Context, serverID int64, phase model.JobPhase) (bool, error) {
 	const q = `
-		INSERT INTO jobs (server_id, phase)
-		VALUES ($1, $2)
-		ON CONFLICT (server_id, phase) WHERE state IN ('queued', 'claimed')
+		INSERT INTO jobs (server_id, phase, slot)
+		VALUES ($1, $2, 0)
+		ON CONFLICT (server_id, phase, slot) WHERE state IN ('queued', 'claimed')
 		DO NOTHING`
 	tag, err := s.pool.Exec(ctx, q, serverID, string(phase))
 	if err != nil {
@@ -25,20 +25,60 @@ func (s *Store) EnqueueJob(ctx context.Context, serverID int64, phase model.JobP
 	return tag.RowsAffected() > 0, nil
 }
 
+// EnqueueFanout queues n open slots (0..n-1) for a (server, phase) within a
+// batch, so the config is tested by up to n distinct workers (DESIGN 5). Slots
+// that already have an open job are left untouched (idempotent re-dispatch). It
+// returns how many new jobs were created.
+func (s *Store) EnqueueFanout(ctx context.Context, batchID, serverID int64, phase model.JobPhase, n int) (int64, error) {
+	if n < 1 {
+		n = 1
+	}
+	const q = `
+		INSERT INTO jobs (server_id, phase, slot, batch_id)
+		SELECT $1, $2, g, $3 FROM generate_series(0, $4 - 1) g
+		ON CONFLICT (server_id, phase, slot) WHERE state IN ('queued', 'claimed')
+		DO NOTHING`
+	tag, err := s.pool.Exec(ctx, q, serverID, string(phase), batchID, n)
+	if err != nil {
+		return 0, fmt.Errorf("enqueue fanout: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ClaimJobs atomically leases up to max queued jobs (optionally filtered by
 // phase) to a worker, using FOR UPDATE SKIP LOCKED so concurrent workers never
-// grab the same job. Claimed jobs are returned with their server raw_uri.
+// grab the same job. To keep the N proofs distinct, a worker is never given a
+// job for a (server, phase) it already holds or has already tested: this is how
+// fan-out spreads each config across different workers (DESIGN 5). Claimed jobs
+// are returned with their server raw_uri.
 func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int) ([]ClaimedJob, error) {
 	phaseFilter := string(phase)
 	const q = `
-		WITH picked AS (
-			SELECT j.id
+		WITH locked AS (
+			-- Lock up to max claimable rows with the proven SKIP LOCKED pattern,
+			-- excluding any config this worker already holds/tested (cross-call
+			-- distinctness).
+			SELECT j.id, j.server_id, j.phase, j.created_at
 			FROM jobs j
 			WHERE j.state = 'queued'
 			  AND ($2 = '' OR j.phase = $2)
+			  AND NOT EXISTS (
+			      SELECT 1 FROM jobs sib
+			      WHERE sib.server_id = j.server_id AND sib.phase = j.phase
+			        AND sib.claimed_by = $1
+			        AND sib.state IN ('claimed', 'done', 'failed')
+			  )
 			ORDER BY j.created_at
 			FOR UPDATE SKIP LOCKED
 			LIMIT $3
+		),
+		picked AS (
+			-- Keep at most one slot per (server, phase) from this batch of locked
+			-- rows, so a single claim never hands one worker two of a config's N
+			-- proofs (within-call distinctness). Extra locked rows stay queued.
+			SELECT DISTINCT ON (server_id, phase) id
+			FROM locked
+			ORDER BY server_id, phase, created_at
 		)
 		UPDATE jobs j
 		SET state = 'claimed', claimed_by = $1, claimed_at = now(), attempts = attempts + 1
@@ -93,18 +133,49 @@ func (s *Store) setJobState(ctx context.Context, jobID int64, state model.JobSta
 	return nil
 }
 
-// RequeueExpired returns claimed jobs older than ttl back to the queue so a dead
-// worker's work is retried. It returns the number of requeued jobs.
-func (s *Store) RequeueExpired(ctx context.Context, ttl time.Duration) (int64, error) {
-	const q = `
-		UPDATE jobs
-		SET state = 'queued', claimed_by = NULL, claimed_at = NULL
-		WHERE state = 'claimed' AND claimed_at < $1`
-	tag, err := s.pool.Exec(ctx, q, time.Now().Add(-ttl))
-	if err != nil {
-		return 0, fmt.Errorf("requeue expired: %w", err)
+// RequeueExpired handles jobs whose lease has expired (claimed_at older than
+// ttl), i.e. a worker that died or stalled mid-test. Such a job is returned to
+// the queue so a *different* live worker can retry it (the distinct-worker claim
+// rule keeps the N proofs distinct). A job that has already been attempted
+// maxAttempts times is marked failed instead of looping forever; maxAttempts <= 0
+// disables that cap. It returns how many jobs were requeued and failed.
+func (s *Store) RequeueExpired(ctx context.Context, ttl time.Duration, maxAttempts int) (requeued, failed int64, err error) {
+	cutoff := time.Now().Add(-ttl)
+
+	if maxAttempts > 0 {
+		tag, ferr := s.pool.Exec(ctx,
+			`UPDATE jobs SET state = 'failed'
+			 WHERE state = 'claimed' AND claimed_at < $1 AND attempts >= $2`,
+			cutoff, maxAttempts)
+		if ferr != nil {
+			return 0, 0, fmt.Errorf("fail exhausted: %w", ferr)
+		}
+		failed = tag.RowsAffected()
 	}
-	return tag.RowsAffected(), nil
+
+	tag, rerr := s.pool.Exec(ctx,
+		`UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL
+		 WHERE state = 'claimed' AND claimed_at < $1`,
+		cutoff)
+	if rerr != nil {
+		return 0, failed, fmt.Errorf("requeue expired: %w", rerr)
+	}
+	return tag.RowsAffected(), failed, nil
+}
+
+// OpenJobCount counts jobs still in flight (queued or claimed) for a batch, or
+// across all batches when batchID is nil. A batch is drained (ready to publish)
+// when this reaches zero.
+func (s *Store) OpenJobCount(ctx context.Context, batchID *int64) (int, error) {
+	const q = `
+		SELECT count(*) FROM jobs
+		WHERE state IN ('queued', 'claimed')
+		  AND ($1::bigint IS NULL OR batch_id = $1)`
+	var n int
+	if err := s.pool.QueryRow(ctx, q, batchID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("open job count: %w", err)
+	}
+	return n, nil
 }
 
 // NackJobs releases the given jobs back to the queue, but only those still
@@ -142,11 +213,12 @@ func (s *Store) RecordResult(ctx context.Context, workerID string, jobID int64, 
 
 	var serverID int64
 	var phase string
+	var batchID *int64
 	err = tx.QueryRow(ctx,
-		`SELECT server_id, phase FROM jobs
+		`SELECT server_id, phase, batch_id FROM jobs
 		 WHERE id = $1 AND state = 'claimed' AND claimed_by = $2 FOR UPDATE`,
 		jobID, workerID,
-	).Scan(&serverID, &phase)
+	).Scan(&serverID, &phase, &batchID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return false, nil
@@ -156,8 +228,8 @@ func (s *Store) RecordResult(ctx context.Context, workerID string, jobID int64, 
 
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO test_runs (server_id, worker_id, batch_id, phase, latency_ms, dl_mbps, ul_mbps, status, error)
-		 VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8)`,
-		serverID, workerID, phase, r.LatencyMs, r.DlMbps, r.UlMbps, string(r.Status), nullString(r.Error),
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		serverID, workerID, batchID, phase, r.LatencyMs, r.DlMbps, r.UlMbps, string(r.Status), nullString(r.Error),
 	); err != nil {
 		return false, fmt.Errorf("record result: insert run: %w", err)
 	}

@@ -30,6 +30,23 @@ func (s *Store) FinishBatch(ctx context.Context, id int64) error {
 	return nil
 }
 
+// LatestUnfinishedBatch returns the most recent still-open batch, ok=false when
+// none is in flight. The coordinator uses it to avoid starting a new cycle while
+// one is still draining (single active batch).
+func (s *Store) LatestUnfinishedBatch(ctx context.Context) (int64, bool, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT id FROM batches WHERE finished_at IS NULL ORDER BY started_at DESC LIMIT 1`,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("latest unfinished batch: %w", err)
+	}
+	return id, true, nil
+}
+
 // LatestFinishedBatch returns the most recent completed batch ID, ok=false when
 // none exist yet.
 func (s *Store) LatestFinishedBatch(ctx context.Context) (int64, bool, error) {

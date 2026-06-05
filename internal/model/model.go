@@ -48,6 +48,9 @@ const (
 	PhaseLatency JobPhase = "latency"
 	PhaseSpeed   JobPhase = "speed"
 	PhaseChecks  JobPhase = "checks"
+	// PhaseFunnel is the combined latency+speed test the distributed cycle
+	// enqueues: one job per server, one worker, one corroborating measurement.
+	PhaseFunnel JobPhase = "funnel"
 )
 
 // JobState is the lifecycle state of a queued job.

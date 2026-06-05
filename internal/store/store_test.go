@@ -184,13 +184,13 @@ func TestRequeueExpired(t *testing.T) {
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("claim got %d err=%v", len(claimed), err)
 	}
-	// ttl=0 requeues anything claimed in the past.
-	n, err := st.RequeueExpired(ctx, 0)
+	// ttl=0 requeues anything claimed in the past; maxAttempts=0 disables capping.
+	n, failed, err := st.RequeueExpired(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("requeue: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("requeued %d, want 1", n)
+	if n != 1 || failed != 0 {
+		t.Fatalf("requeued=%d failed=%d, want 1/0", n, failed)
 	}
 	queued, _ := st.CountJobs(ctx, model.JobQueued)
 	if queued != 1 {
@@ -377,6 +377,176 @@ func TestNackJobs(t *testing.T) {
 	claimedCount, _ := st.CountJobs(ctx, model.JobClaimed)
 	if claimedCount != 1 {
 		t.Fatalf("claimed = %d, want 1 (w2 untouched)", claimedCount)
+	}
+}
+
+// recordPass claims one funnel slot for the worker and reports a passing run.
+func recordPass(t *testing.T, st *store.Store, worker string, serverID int64, latency int, dl float64) {
+	t.Helper()
+	ctx := context.Background()
+	claimed, err := st.ClaimJobs(ctx, worker, model.PhaseFunnel, 1)
+	if err != nil {
+		t.Fatalf("claim for %s: %v", worker, err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("worker %s claimed %d jobs, want 1", worker, len(claimed))
+	}
+	ok, err := st.RecordResult(ctx, worker, claimed[0].JobID, model.TestRun{
+		Status: model.StatusOK, LatencyMs: &latency, DlMbps: &dl,
+	})
+	if err != nil || !ok {
+		t.Fatalf("record for %s: ok=%v err=%v", worker, ok, err)
+	}
+}
+
+func TestEnqueueFanoutCreatesSlots(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	batch, _ := st.CreateBatch(ctx, "scheduled")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+
+	n, err := st.EnqueueFanout(ctx, batch, srvID, model.PhaseFunnel, 3)
+	if err != nil {
+		t.Fatalf("fanout: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("created %d slots, want 3", n)
+	}
+	// Re-dispatch is idempotent: the open slots already exist.
+	again, _ := st.EnqueueFanout(ctx, batch, srvID, model.PhaseFunnel, 3)
+	if again != 0 {
+		t.Fatalf("re-dispatch created %d, want 0", again)
+	}
+	queued, _ := st.CountJobs(ctx, model.JobQueued)
+	if queued != 3 {
+		t.Fatalf("queued = %d, want 3", queued)
+	}
+}
+
+// TestFanoutDistinctWorkers proves each config is tested by distinct workers: a
+// worker never claims two slots of the same (server, phase).
+func TestFanoutDistinctWorkers(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	mustWorker(t, st, "w2")
+	batch, _ := st.CreateBatch(ctx, "scheduled")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+	if _, err := st.EnqueueFanout(ctx, batch, srvID, model.PhaseFunnel, 2); err != nil {
+		t.Fatalf("fanout: %v", err)
+	}
+
+	// w1 grabs one slot; asking for many more yields nothing (its only sibling is
+	// the slot it already holds).
+	first, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 10)
+	if len(first) != 1 {
+		t.Fatalf("w1 first claim = %d, want 1", len(first))
+	}
+	more, _ := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 10)
+	if len(more) != 0 {
+		t.Fatalf("w1 must not claim a second slot of the same server, got %d", len(more))
+	}
+	// w2 takes the remaining slot.
+	second, _ := st.ClaimJobs(ctx, "w2", model.PhaseFunnel, 10)
+	if len(second) != 1 {
+		t.Fatalf("w2 claim = %d, want 1", len(second))
+	}
+	if first[0].JobID == second[0].JobID {
+		t.Fatal("two workers claimed the same slot")
+	}
+}
+
+func TestRequeueFailsExhausted(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+	st.EnqueueJob(ctx, srvID, model.PhaseFunnel)
+
+	// First claim: attempts becomes 1.
+	if _, err := st.ClaimJobs(ctx, "w1", model.PhaseFunnel, 1); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	// Lease expired and attempts (1) >= maxAttempts (1) -> failed, not requeued.
+	requeued, failed, err := st.RequeueExpired(ctx, 0, 1)
+	if err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	if requeued != 0 || failed != 1 {
+		t.Fatalf("requeued=%d failed=%d, want 0/1", requeued, failed)
+	}
+	n, _ := st.CountJobs(ctx, model.JobFailed)
+	if n != 1 {
+		t.Fatalf("failed jobs = %d, want 1", n)
+	}
+}
+
+func TestOpenJobCountDrains(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	batch, _ := st.CreateBatch(ctx, "scheduled")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+	st.EnqueueFanout(ctx, batch, srvID, model.PhaseFunnel, 1)
+
+	open, _ := st.OpenJobCount(ctx, &batch)
+	if open != 1 {
+		t.Fatalf("open = %d, want 1", open)
+	}
+	recordPass(t, st, "w1", srvID, 20, 12.0)
+	open, _ = st.OpenJobCount(ctx, &batch)
+	if open != 0 {
+		t.Fatalf("open after record = %d, want 0 (drained)", open)
+	}
+}
+
+func TestApprovedServersCorroboration(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	mustWorker(t, st, "w1")
+	mustWorker(t, st, "w2")
+	batch, _ := st.CreateBatch(ctx, "scheduled")
+	srvID, _ := st.UpsertServer(ctx, sampleServer(1))
+	st.SetServerGeo(ctx, srvID, "FR", "FR1")
+	st.EnqueueFanout(ctx, batch, srvID, model.PhaseFunnel, 2)
+
+	// Two distinct workers both pass, with different speeds.
+	recordPass(t, st, "w1", srvID, 30, 10.0)
+	recordPass(t, st, "w2", srvID, 40, 20.0)
+
+	// Requiring 2 distinct workers: approved, median of {10,20} = 15.
+	got, err := st.ApprovedServers(ctx, &batch, 0, 1000, 2)
+	if err != nil {
+		t.Fatalf("approved: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("approved count = %d, want 1", len(got))
+	}
+	if got[0].Workers != 2 {
+		t.Fatalf("workers = %d, want 2", got[0].Workers)
+	}
+	if got[0].MedianDlMbps != 15 {
+		t.Fatalf("median = %v, want 15", got[0].MedianDlMbps)
+	}
+	if got[0].SeqName != "FR1" || got[0].Country != "FR" {
+		t.Fatalf("geo not returned: %+v", got[0])
+	}
+
+	// Requiring 3 distinct workers: not approved (only 2 measured it).
+	got, _ = st.ApprovedServers(ctx, &batch, 0, 1000, 3)
+	if len(got) != 0 {
+		t.Fatalf("required=3 approved %d, want 0", len(got))
+	}
+
+	// Raising the speed bar above both measurements drops it.
+	got, _ = st.ApprovedServers(ctx, &batch, 1e6, 1000, 1)
+	if len(got) != 0 {
+		t.Fatalf("high speed bar approved %d, want 0", len(got))
 	}
 }
 

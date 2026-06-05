@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/whitedns/vless-tester/internal/model"
 )
@@ -27,6 +28,48 @@ func (s *Store) Heartbeat(ctx context.Context, workerID, status string) error {
 		return fmt.Errorf("heartbeat %s: %w", workerID, err)
 	}
 	return nil
+}
+
+// AliveWorkers counts workers seen within the given window. The coordinator uses
+// it to cap fan-out: there is no point creating more distinct-worker slots than
+// there are live workers to claim them.
+func (s *Store) AliveWorkers(ctx context.Context, within time.Duration) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM workers WHERE last_seen >= $1`, time.Now().Add(-within),
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("alive workers: %w", err)
+	}
+	return n, nil
+}
+
+// FleetStats is a snapshot of fleet and queue health for operational metrics.
+type FleetStats struct {
+	Workers int
+	Alive   int
+	Queued  int
+	Claimed int
+	Done    int
+	Failed  int
+}
+
+// Fleet returns a one-shot metrics snapshot of the fleet and job queue.
+func (s *Store) Fleet(ctx context.Context, aliveWindow time.Duration) (FleetStats, error) {
+	var fs FleetStats
+	const q = `
+		SELECT
+			(SELECT count(*) FROM workers),
+			(SELECT count(*) FROM workers WHERE last_seen >= $1),
+			(SELECT count(*) FROM jobs WHERE state = 'queued'),
+			(SELECT count(*) FROM jobs WHERE state = 'claimed'),
+			(SELECT count(*) FROM jobs WHERE state = 'done'),
+			(SELECT count(*) FROM jobs WHERE state = 'failed')`
+	if err := s.pool.QueryRow(ctx, q, time.Now().Add(-aliveWindow)).Scan(
+		&fs.Workers, &fs.Alive, &fs.Queued, &fs.Claimed, &fs.Done, &fs.Failed,
+	); err != nil {
+		return fs, fmt.Errorf("fleet stats: %w", err)
+	}
+	return fs, nil
 }
 
 // ListWorkers returns the whole fleet.
