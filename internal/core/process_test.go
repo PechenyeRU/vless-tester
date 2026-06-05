@@ -109,6 +109,11 @@ func TestConfigsPassSingboxCheck(t *testing.T) {
 			Params: map[string]string{"sni": "h.example", "insecure": "1"}},
 		"tuic": {Protocol: model.ProtocolTUIC, Host: "u.example", Port: 443, Credential: "33333333-3333-3333-3333-333333333333:pw",
 			Params: map[string]string{"congestion_control": "bbr", "sni": "u.example", "alpn": "h3"}},
+		"anytls": {Protocol: model.ProtocolAnyTLS, Host: "at.example", Port: 443, Credential: "password",
+			Params: map[string]string{"sni": "at.example", "insecure": "1"}},
+		"hysteria-v1": {Protocol: model.ProtocolHysteria, Host: "h1.example", Port: 443, Credential: "secret",
+			Params: map[string]string{"peer": "h1.example", "upmbps": "100", "downmbps": "100", "insecure": "1"}},
+		"socks": {Protocol: model.ProtocolSOCKS, Host: "sk.example", Port: 1080, Credential: "user:pass"},
 	}
 
 	for name, srv := range servers {

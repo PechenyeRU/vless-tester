@@ -12,9 +12,12 @@ const (
 	ProtocolVLESS       Protocol = "vless"
 	ProtocolVMess       Protocol = "vmess"
 	ProtocolHysteria2   Protocol = "hysteria2"
+	ProtocolHysteria    Protocol = "hysteria" // v1
 	ProtocolTUIC        Protocol = "tuic"
 	ProtocolTrojan      Protocol = "trojan"
 	ProtocolShadowsocks Protocol = "ss"
+	ProtocolAnyTLS      Protocol = "anytls"
+	ProtocolSOCKS       Protocol = "socks"
 )
 
 // Server is a unique, deduplicated proxy endpoint. Params carries the

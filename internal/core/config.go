@@ -50,6 +50,12 @@ func buildOutbound(srv model.Server) (map[string]any, error) {
 		return hysteria2Outbound(srv), nil
 	case model.ProtocolTUIC:
 		return tuicOutbound(srv), nil
+	case model.ProtocolAnyTLS:
+		return anytlsOutbound(srv), nil
+	case model.ProtocolHysteria:
+		return hysteriaV1Outbound(srv), nil
+	case model.ProtocolSOCKS:
+		return socksOutbound(srv), nil
 	default:
 		return nil, fmt.Errorf("core: unsupported protocol %q", srv.Protocol)
 	}
@@ -138,6 +144,48 @@ func tuicOutbound(srv model.Server) map[string]any {
 	setIf(o, "udp_relay_mode", srv.Params["udp_relay_mode"])
 	// TUIC always runs over TLS.
 	o["tls"] = forceTLS(srv)
+	return o
+}
+
+func anytlsOutbound(srv model.Server) map[string]any {
+	o := base(srv, "anytls")
+	o["password"] = srv.Credential
+	// AnyTLS always runs over TLS.
+	o["tls"] = forceTLS(srv)
+	return o
+}
+
+func hysteriaV1Outbound(srv model.Server) map[string]any {
+	o := base(srv, "hysteria")
+	o["auth_str"] = srv.Credential
+	if up := atoiOrZero(srv.Params["upmbps"]); up > 0 {
+		o["up_mbps"] = up
+	}
+	if down := atoiOrZero(srv.Params["downmbps"]); down > 0 {
+		o["down_mbps"] = down
+	}
+	setIf(o, "obfs", srv.Params["obfs"])
+	// Hysteria v1 always runs over TLS; v1 uses `peer` for the server name.
+	tls := map[string]any{"enabled": true}
+	setIf(tls, "server_name", orDefault(srv.Params["peer"], orDefault(srv.Params["sni"], srv.Host)))
+	if isTruthy(srv.Params["insecure"]) {
+		tls["insecure"] = true
+	}
+	if alpn := srv.Params["alpn"]; alpn != "" {
+		tls["alpn"] = strings.Split(alpn, ",")
+	}
+	o["tls"] = tls
+	return o
+}
+
+func socksOutbound(srv model.Server) map[string]any {
+	o := base(srv, "socks")
+	o["version"] = "5"
+	if srv.Credential != "" {
+		user, password, _ := strings.Cut(srv.Credential, ":")
+		setIf(o, "username", user)
+		setIf(o, "password", password)
+	}
 	return o
 }
 

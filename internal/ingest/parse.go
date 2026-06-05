@@ -30,6 +30,12 @@ func Parse(raw string) (model.Server, error) {
 		return parseURLStyle(raw, model.ProtocolTUIC)
 	case "hysteria2", "hy2":
 		return parseURLStyle(raw, model.ProtocolHysteria2)
+	case "anytls":
+		return parseURLStyle(raw, model.ProtocolAnyTLS)
+	case "hysteria", "hy":
+		return parseHysteriaV1(raw)
+	case "socks", "socks5":
+		return parseSocks(raw)
 	case "vmess":
 		return parseVMess(raw)
 	case "ss":
@@ -198,6 +204,84 @@ func parseShadowsocks(raw string) (model.Server, error) {
 		Credential: password,
 	}
 	srv.Fingerprint = fingerprint(srv, password)
+	return srv, nil
+}
+
+// parseHysteriaV1 handles the legacy Hysteria v1 link, where the credential
+// lives in the `auth`/`auth_str` query parameter rather than the userinfo.
+func parseHysteriaV1(raw string) (model.Server, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return model.Server{}, fmt.Errorf("parse hysteria: %w", err)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return model.Server{}, fmt.Errorf("hysteria: empty host")
+	}
+	port, err := parsePort(u.Port())
+	if err != nil {
+		return model.Server{}, fmt.Errorf("hysteria: %w", err)
+	}
+	params := flattenQuery(u.Query())
+	credential := params["auth"]
+	if credential == "" {
+		credential = params["auth_str"]
+	}
+
+	srv := model.Server{
+		RawURI:     raw,
+		Protocol:   model.ProtocolHysteria,
+		Host:       host,
+		Port:       port,
+		Params:     params,
+		Credential: credential,
+	}
+	srv.Fingerprint = fingerprint(srv, credential)
+	return srv, nil
+}
+
+// parseSocks handles socks://[base64(user:pass)@]host:port and the socks5://
+// alias. Authentication is optional.
+func parseSocks(raw string) (model.Server, error) {
+	body := raw
+	for _, prefix := range []string{"socks5://", "socks://"} {
+		body = strings.TrimPrefix(body, prefix)
+	}
+	if i := strings.IndexByte(body, '#'); i >= 0 {
+		body = body[:i]
+	}
+	if i := strings.IndexByte(body, '?'); i >= 0 {
+		body = body[:i]
+	}
+
+	credential := ""
+	if at := strings.LastIndexByte(body, '@'); at >= 0 {
+		userinfo := body[:at]
+		body = body[at+1:]
+		if decoded, ok := decodeBase64(userinfo); ok && strings.Contains(string(decoded), ":") {
+			userinfo = string(decoded)
+		}
+		credential = userinfo // "user:pass"
+	}
+
+	host, portStr, ok := strings.Cut(body, ":")
+	if !ok || host == "" {
+		return model.Server{}, fmt.Errorf("socks: invalid host:port %q", body)
+	}
+	port, err := parsePort(portStr)
+	if err != nil {
+		return model.Server{}, fmt.Errorf("socks: %w", err)
+	}
+
+	srv := model.Server{
+		RawURI:     raw,
+		Protocol:   model.ProtocolSOCKS,
+		Host:       host,
+		Port:       port,
+		Params:     map[string]string{},
+		Credential: credential,
+	}
+	srv.Fingerprint = fingerprint(srv, credential)
 	return srv, nil
 }
 

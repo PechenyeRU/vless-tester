@@ -48,6 +48,10 @@ func TestParseProtocols(t *testing.T) {
 		{"hy2-alias", "hy2://auth123@hy2.example.com:8443?sni=hy2.example.com#HY", model.ProtocolHysteria2, "hy2.example.com", 8443},
 		{"ss-sip002", ssSIP002("aes-256-gcm", "password", "ss.example.com", 8388, "SS"), model.ProtocolShadowsocks, "ss.example.com", 8388},
 		{"ss-legacy", ssLegacy("aes-256-gcm", "password", "ss.example.com", 8388, "SS"), model.ProtocolShadowsocks, "ss.example.com", 8388},
+		{"anytls", "anytls://password@at.example.com:443?sni=at.example.com&insecure=1#AT", model.ProtocolAnyTLS, "at.example.com", 443},
+		{"hysteria-v1", "hysteria://h1.example.com:443?auth=secret&peer=h1.example.com&upmbps=100&downmbps=100&insecure=1#H1", model.ProtocolHysteria, "h1.example.com", 443},
+		{"socks5", "socks5://user:pass@sk.example.com:1080#SK", model.ProtocolSOCKS, "sk.example.com", 1080},
+		{"socks-noauth", "socks://sk.example.com:1080#SK", model.ProtocolSOCKS, "sk.example.com", 1080},
 	}
 
 	for _, tt := range tests {
