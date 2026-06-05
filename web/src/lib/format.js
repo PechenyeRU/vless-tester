@@ -1,0 +1,32 @@
+// Small pure formatters shared across views.
+
+const FLAG_BASE = 0x1f1e6;
+
+// flag turns an ISO-3166 alpha-2 country code into its emoji flag. Unknown or
+// empty codes render a neutral globe.
+export function flag(country) {
+	if (!country || country.length !== 2) return '🌐';
+	const cc = country.toUpperCase();
+	if (!/^[A-Z]{2}$/.test(cc)) return '🌐';
+	return String.fromCodePoint(FLAG_BASE + (cc.charCodeAt(0) - 65), FLAG_BASE + (cc.charCodeAt(1) - 65));
+}
+
+// mbps formats a download/upload number, or a dash when absent.
+export function mbps(v) {
+	return v == null ? '—' : `${v.toFixed(1)} MB/s`;
+}
+
+// ms formats a latency value, or a dash when absent.
+export function ms(v) {
+	return v == null ? '—' : `${v} ms`;
+}
+
+// ago renders a timestamp as a compact relative age (e.g. "3m", "2h").
+export function ago(ts, now = Date.now()) {
+	if (!ts) return '—';
+	const secs = Math.max(0, Math.floor((now - new Date(ts).getTime()) / 1000));
+	if (secs < 60) return `${secs}s`;
+	if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+	if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+	return `${Math.floor(secs / 86400)}d`;
+}

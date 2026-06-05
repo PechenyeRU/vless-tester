@@ -22,6 +22,7 @@ import (
 	"github.com/whitedns/vless-tester/internal/output"
 	"github.com/whitedns/vless-tester/internal/scheduler"
 	"github.com/whitedns/vless-tester/internal/store"
+	webui "github.com/whitedns/vless-tester/web"
 )
 
 func main() {
@@ -207,6 +208,8 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler) http.Handler {
 	mux.Handle("/api/v1/sources", admin)
 	mux.Handle("/api/v1/settings", admin)
 	mux.Handle("/api/v1/actions/", admin)
+	// Embedded SvelteKit dashboard at the root, below the API planes.
+	mux.Handle("/", webui.Handler())
 	return mux
 }
 

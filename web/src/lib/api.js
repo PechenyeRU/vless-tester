@@ -1,0 +1,61 @@
+import { browser } from '$app/environment';
+
+const TOKEN_KEY = 'admin_token';
+
+export function getToken() {
+	return browser ? localStorage.getItem(TOKEN_KEY) || '' : '';
+}
+
+export function setToken(t) {
+	if (browser) localStorage.setItem(TOKEN_KEY, t);
+}
+
+// buildServerQuery turns a filter object into a /servers query string. Pure and
+// dependency-free so it is unit-testable without a browser. Empty/zero fields
+// are omitted.
+export function buildServerQuery(filter = {}) {
+	const p = new URLSearchParams();
+	if (filter.country) p.set('country', filter.country);
+	if (filter.worker) p.set('worker', filter.worker);
+	if (filter.minSpeed) p.set('min_speed', String(filter.minSpeed));
+	if (filter.limit) p.set('limit', String(filter.limit));
+	const s = p.toString();
+	return s ? '?' + s : '';
+}
+
+async function req(method, path, body) {
+	const headers = {};
+	const token = getToken();
+	if (token) headers['Authorization'] = 'Bearer ' + token;
+	if (body !== undefined) headers['Content-Type'] = 'application/json';
+	const res = await fetch('/api/v1' + path, {
+		method,
+		headers,
+		body: body !== undefined ? JSON.stringify(body) : undefined
+	});
+	if (!res.ok) {
+		let msg = res.statusText;
+		try {
+			const data = await res.json();
+			if (data && data.error) msg = data.error;
+		} catch {
+			/* non-json body */
+		}
+		throw new Error(`${res.status}: ${msg}`);
+	}
+	const ct = res.headers.get('content-type') || '';
+	return ct.includes('application/json') ? res.json() : null;
+}
+
+export const api = {
+	servers: (filter) => req('GET', '/servers' + buildServerQuery(filter)),
+	server: (id) => req('GET', '/servers/' + id),
+	workers: () => req('GET', '/workers'),
+	stats: () => req('GET', '/stats'),
+	sources: () => req('GET', '/sources'),
+	upsertSource: (kind, location) => req('PUT', '/sources', { kind, location }),
+	toggleSource: (id, enabled) => req('PUT', '/sources', { id, enabled }),
+	settings: () => req('GET', '/settings'),
+	putSettings: (patch) => req('PUT', '/settings', patch),
+	action: (name) => req('POST', '/actions/' + name)
+};

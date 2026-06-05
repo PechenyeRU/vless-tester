@@ -1,0 +1,180 @@
+:root {
+	--bg: #0f1115;
+	--panel: #171a21;
+	--border: #262b36;
+	--fg: #e6e9ef;
+	--muted: #8a92a6;
+	--accent: #4f8cff;
+	--ok: #3fb950;
+	--bad: #f85149;
+	font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.75rem 1.25rem;
+	background: var(--panel);
+	border-bottom: 1px solid var(--border);
+	flex-wrap: wrap;
+}
+
+nav {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+}
+
+.brand {
+	font-weight: 700;
+	color: var(--accent);
+}
+
+nav a {
+	color: var(--muted);
+	text-decoration: none;
+	font-size: 0.95rem;
+}
+
+nav a.active,
+nav a:hover {
+	color: var(--fg);
+}
+
+.token {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.8rem;
+	color: var(--muted);
+}
+
+main {
+	padding: 1.5rem;
+	max-width: 1100px;
+	margin: 0 auto;
+}
+
+h1 {
+	font-size: 1.4rem;
+	margin: 0 0 1rem;
+}
+
+h2 {
+	font-size: 1.1rem;
+	margin: 1.5rem 0 0.75rem;
+}
+
+input,
+select,
+button {
+	background: var(--panel);
+	color: var(--fg);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 0.4rem 0.6rem;
+	font: inherit;
+}
+
+button {
+	cursor: pointer;
+}
+
+button:hover {
+	border-color: var(--accent);
+}
+
+button.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #fff;
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.9rem;
+}
+
+th,
+td {
+	text-align: left;
+	padding: 0.5rem 0.6rem;
+	border-bottom: 1px solid var(--border);
+}
+
+th {
+	color: var(--muted);
+	font-weight: 600;
+}
+
+.cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 1rem;
+}
+
+.card {
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 1rem;
+}
+
+.card .num {
+	font-size: 1.8rem;
+	font-weight: 700;
+}
+
+.card .label {
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+.row {
+	display: flex;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+	align-items: end;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	font-size: 0.8rem;
+	color: var(--muted);
+}
+
+.ok {
+	color: var(--ok);
+}
+
+.bad {
+	color: var(--bad);
+}
+
+.error {
+	color: var(--bad);
+	margin: 0.5rem 0;
+}
+
+.muted {
+	color: var(--muted);
+}
+
+a.link {
+	color: var(--accent);
+}
