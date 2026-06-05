@@ -51,6 +51,9 @@ func (f *apiFake) NackJobs(_ context.Context, _ string, ids []int64) (int64, err
 func (f *apiFake) MediaChecks(_ context.Context) ([]string, error)  { return f.mediaPlatforms, nil }
 func (f *apiFake) MediaRequire(_ context.Context) ([]string, error) { return nil, nil }
 func (f *apiFake) IPRiskEnabled(_ context.Context) (bool, error)    { return false, nil }
+func (f *apiFake) FunnelStages(_ context.Context) ([]model.FunnelStage, error) {
+	return nil, nil
+}
 
 // tokResolver authenticates one secret as one worker name.
 type tokResolver struct{ token, name string }

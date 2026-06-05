@@ -146,6 +146,16 @@ type CheckOutcome struct {
 	Metric *float64 `json:"metric,omitempty"`
 }
 
+// FunnelStage is one configurable step the worker runs after the latency gate.
+// The optional stages (media, ip_risk, speed) are an ordered, gateable pipeline
+// driven by the funnel.stages setting and pushed to the worker via the claim.
+// Gate means: if this stage does not pass, skip the remaining stages for the
+// node (e.g. drop a node that fails the media filter before the speed test).
+type FunnelStage struct {
+	Check string `json:"check"` // "media" | "ip_risk" | "speed"
+	Gate  bool   `json:"gate"`
+}
+
 // Check is an extensible approval check result (reachability, geo, dns-leak).
 type Check struct {
 	ID       int64

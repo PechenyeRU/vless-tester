@@ -75,6 +75,20 @@ func (s *Store) ServerChecks(ctx context.Context, serverID int64) ([]model.Check
 	return out, rows.Err()
 }
 
+// FunnelStages returns the configured ordered funnel pipeline (media, ip_risk,
+// speed with per-stage gate flags). Missing means nil, so the worker falls back
+// to its built-in default order.
+func (s *Store) FunnelStages(ctx context.Context) ([]model.FunnelStage, error) {
+	var stages []model.FunnelStage
+	if err := s.GetSetting(ctx, "funnel.stages", &stages); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return stages, nil
+}
+
 // IPRiskEnabled reports whether workers should score the exit IP's reputation,
 // from the iprisk.enabled setting. Missing means disabled.
 func (s *Store) IPRiskEnabled(ctx context.Context) (bool, error) {

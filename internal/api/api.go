@@ -42,6 +42,8 @@ type Store interface {
 	MediaRequire(ctx context.Context) ([]string, error)
 	// IPRiskEnabled reports whether workers should score the exit IP's reputation.
 	IPRiskEnabled(ctx context.Context) (bool, error)
+	// FunnelStages returns the ordered, gateable funnel pipeline pushed to workers.
+	FunnelStages(ctx context.Context) ([]model.FunnelStage, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity and
@@ -242,14 +244,15 @@ type claimReq struct {
 }
 
 type claimedJob struct {
-	JobID    int64    `json:"job_id"`
-	ServerID int64    `json:"server_id"`
-	RawURI   string   `json:"raw_uri"`
-	Phase    string   `json:"phase"`
-	Protocol string   `json:"protocol"`
-	Checks   []string `json:"checks,omitempty"`
-	Require  []string `json:"require,omitempty"`
-	IPRisk   bool     `json:"ip_risk,omitempty"`
+	JobID    int64               `json:"job_id"`
+	ServerID int64               `json:"server_id"`
+	RawURI   string              `json:"raw_uri"`
+	Phase    string              `json:"phase"`
+	Protocol string              `json:"protocol"`
+	Checks   []string            `json:"checks,omitempty"`
+	Require  []string            `json:"require,omitempty"`
+	IPRisk   bool                `json:"ip_risk,omitempty"`
+	Stages   []model.FunnelStage `json:"stages,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +304,11 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		s.logf("api: claim %s: ip-risk setting: %v", workerID, err)
 		ipRisk = false // best-effort; never fail a claim over it
 	}
+	stages, err := s.Store.FunnelStages(r.Context())
+	if err != nil {
+		s.logf("api: claim %s: funnel stages: %v", workerID, err)
+		stages = nil // best-effort; worker falls back to its default order
+	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
@@ -312,6 +320,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			Checks:   platforms,
 			Require:  require,
 			IPRisk:   ipRisk,
+			Stages:   stages,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

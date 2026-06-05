@@ -63,45 +63,79 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		return res
 	}
 
-	// Media-unlock probes run through the same proxy once the server is alive,
-	// before the expensive speed test so a node that fails the media filter never
-	// reaches it (latency -> media -> speed).
-	res.Checks = p.runMedia(ctx, client, job.Checks)
-
-	// IP-risk scoring is informational (it never gates the speed test): it tags
-	// the exit IP's reputation so the coordinator/UI can flag suspect nodes.
-	if job.IPRisk {
-		if c, ok := p.runIPRisk(ctx, client); ok {
+	// Run the configurable funnel pipeline in order. Latency already ran above as
+	// the connectivity gate; the remaining stages (media, ip_risk, speed) and
+	// their gates come from the coordinator (default order when unset). A gated
+	// stage that does not pass stops the funnel for this node.
+	stages := job.Stages
+	if len(stages) == 0 {
+		stages = defaultStages
+	}
+	for _, st := range stages {
+		switch st.Check {
+		case "media":
+			res.Checks = append(res.Checks, p.runMedia(ctx, client, job.Checks)...)
+			if st.Gate && !passesRequire(res.Checks, job.Require) {
+				res.Error = "skipped: media gate not passed"
+				return res
+			}
+		case "ip_risk":
+			if !job.IPRisk {
+				continue
+			}
+			c, ok := p.runIPRisk(ctx, client)
+			if !ok {
+				continue
+			}
 			res.Checks = append(res.Checks, c)
+			if st.Gate && !c.Passed {
+				res.Error = "skipped: ip_risk gate not passed"
+				return res
+			}
+		case "speed":
+			sp, ran := p.runSpeed(ctx, client, &res)
+			if !ran {
+				return res // ctx cancelled while waiting for the speed slot
+			}
+			if st.Gate && !sp.Passed {
+				res.Error = "skipped: speed gate not passed"
+				return res
+			}
 		}
 	}
+	return res
+}
 
-	// Media gate: if the coordinator requires certain unlocks and this node does
-	// not provide them, skip the speed test to save the bandwidth-heavy leg.
-	if !passesRequire(res.Checks, job.Require) {
-		res.Error = "skipped speed: required media not unlocked"
-		return res
-	}
+// defaultStages is the built-in funnel order used when the coordinator does not
+// push a pipeline (older coordinator / unset setting). It mirrors the prior
+// hard-coded behaviour: media gates (honouring Require), ip_risk and speed do not.
+var defaultStages = []model.FunnelStage{
+	{Check: "media", Gate: true},
+	{Check: "ip_risk", Gate: false},
+	{Check: "speed", Gate: false},
+}
 
-	// Bandwidth-sensitive: only a bounded number of speed legs run at once.
+// runSpeed runs the bandwidth-bounded speed leg, recording dl/ul on res. ran is
+// false only when the context was cancelled while waiting for a speed slot (so
+// the caller keeps prior results); otherwise it ran (sp.Passed reports outcome).
+func (p ProbeRunner) runSpeed(ctx context.Context, client *http.Client, res *Result) (checks.Result, bool) {
 	if p.SpeedGate != nil {
 		if err := p.SpeedGate.Acquire(ctx); err != nil {
-			return res // ctx cancelled; keep what we have so far
+			return checks.Result{}, false
 		}
 		defer p.SpeedGate.Release()
 	}
-
 	sp, err := p.Speed.Run(ctx, client)
 	if err != nil {
 		res.Error = err.Error()
-		return res
+		return checks.Result{}, true
 	}
 	res.DlMbps = sp.DlMbps
 	res.UlMbps = sp.UlMbps
 	if !sp.Passed && res.Error == "" {
 		res.Error = sp.Detail
 	}
-	return res
+	return sp, true
 }
 
 // passesRequire reports whether every required platform unlocked. An empty

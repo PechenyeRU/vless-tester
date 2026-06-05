@@ -34,6 +34,7 @@ type fakeStore struct {
 	mediaPlatforms []string
 	mediaRequire   []string
 	ipRisk         bool
+	stages         []model.FunnelStage
 }
 
 func newFake() *fakeStore {
@@ -84,6 +85,9 @@ func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64)
 func (f *fakeStore) MediaChecks(_ context.Context) ([]string, error)  { return f.mediaPlatforms, nil }
 func (f *fakeStore) MediaRequire(_ context.Context) ([]string, error) { return f.mediaRequire, nil }
 func (f *fakeStore) IPRiskEnabled(_ context.Context) (bool, error)    { return f.ipRisk, nil }
+func (f *fakeStore) FunnelStages(_ context.Context) ([]model.FunnelStage, error) {
+	return f.stages, nil
+}
 
 // handlerProvider is satisfied by both *Server (worker plane) and *AdminServer
 // (admin plane), so the do() helper drives either.
@@ -248,6 +252,29 @@ func TestClaimPushesIPRiskFlag(t *testing.T) {
 	mustJSON(t, rec, &jobs)
 	if len(jobs) != 1 || !jobs[0].IPRisk {
 		t.Fatalf("expected ip_risk flag on claimed job, got %+v", jobs)
+	}
+}
+
+func TestClaimPushesFunnelStages(t *testing.T) {
+	f := newFake()
+	f.claimOut = []store.ClaimedJob{
+		{JobID: 7, ServerID: 3, RawURI: "vless://x", Phase: model.PhaseLatency, Protocol: model.ProtocolVLESS},
+	}
+	f.stages = []model.FunnelStage{
+		{Check: "ip_risk", Gate: true},
+		{Check: "media", Gate: false},
+		{Check: "speed", Gate: false},
+	}
+	s := &Server{Store: f}
+
+	rec := do(t, s, http.MethodPost, "/api/v1/jobs/claim", "", `{"worker_id":"w1","phase":"latency","max":5}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var jobs []claimedJob
+	mustJSON(t, rec, &jobs)
+	if len(jobs) != 1 || len(jobs[0].Stages) != 3 || jobs[0].Stages[0].Check != "ip_risk" || !jobs[0].Stages[0].Gate {
+		t.Fatalf("funnel stages not pushed: %+v", jobs)
 	}
 }
 

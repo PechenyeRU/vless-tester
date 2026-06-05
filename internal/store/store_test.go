@@ -67,6 +67,11 @@ func newTestStore(t *testing.T) *store.Store {
 	_ = st.SetSetting(ctx, "media.enabled", false)
 	_ = st.SetSetting(ctx, "media.require", []string{})
 	_ = st.SetSetting(ctx, "iprisk.enabled", false)
+	_ = st.SetSetting(ctx, "funnel.stages", []model.FunnelStage{
+		{Check: "media", Gate: true},
+		{Check: "ip_risk", Gate: false},
+		{Check: "speed", Gate: false},
+	})
 	t.Cleanup(st.Close)
 	return st
 }

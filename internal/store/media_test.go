@@ -72,6 +72,37 @@ func TestIPRiskEnabledSetting(t *testing.T) {
 	}
 }
 
+func TestFunnelStagesSetting(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	// Seed default: media gated, ip_risk and speed not.
+	got, err := st.FunnelStages(ctx)
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if len(got) != 3 || got[0].Check != "media" || !got[0].Gate {
+		t.Fatalf("default stages = %+v", got)
+	}
+
+	// A custom pipeline round-trips (reordered, ip_risk gated before speed).
+	want := []model.FunnelStage{
+		{Check: "ip_risk", Gate: true},
+		{Check: "media", Gate: false},
+		{Check: "speed", Gate: false},
+	}
+	if err := st.SetSetting(ctx, "funnel.stages", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.FunnelStages(ctx)
+	if err != nil {
+		t.Fatalf("custom: %v", err)
+	}
+	if len(got) != 3 || got[0].Check != "ip_risk" || !got[0].Gate || got[2].Check != "speed" {
+		t.Fatalf("custom stages = %+v", got)
+	}
+}
+
 func TestRecordResultStoresCheckMetric(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
