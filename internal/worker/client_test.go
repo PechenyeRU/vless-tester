@@ -48,7 +48,8 @@ func (f *apiFake) NackJobs(_ context.Context, _ string, ids []int64) (int64, err
 	f.nacked = append(f.nacked, ids...)
 	return int64(len(ids)), nil
 }
-func (f *apiFake) MediaChecks(_ context.Context) ([]string, error) { return f.mediaPlatforms, nil }
+func (f *apiFake) MediaChecks(_ context.Context) ([]string, error)  { return f.mediaPlatforms, nil }
+func (f *apiFake) MediaRequire(_ context.Context) ([]string, error) { return nil, nil }
 
 // tokResolver authenticates one secret as one worker name.
 type tokResolver struct{ token, name string }

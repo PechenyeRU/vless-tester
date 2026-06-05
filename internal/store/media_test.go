@@ -39,6 +39,23 @@ func TestMediaChecksSetting(t *testing.T) {
 	}
 }
 
+func TestMediaRequireSetting(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	// Missing/empty -> nil (no gating). The seed default is [].
+	if got, err := st.MediaRequire(ctx); err != nil || got != nil {
+		t.Fatalf("default: got %v err %v, want nil", got, err)
+	}
+	if err := st.SetSetting(ctx, "media.require", []string{"openai"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.MediaRequire(ctx)
+	if err != nil || len(got) != 1 || got[0] != "openai" {
+		t.Fatalf("set: got %v err %v", got, err)
+	}
+}
+
 func TestRecordResultStoresChecks(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

@@ -33,6 +33,23 @@ func (s *Store) MediaChecks(ctx context.Context) ([]string, error) {
 	return platforms, nil
 }
 
+// MediaRequire returns the platforms a server must unlock to be worth a speed
+// test (the media.require setting). Empty/missing means no media gating, so the
+// speed test always runs.
+func (s *Store) MediaRequire(ctx context.Context) ([]string, error) {
+	var require []string
+	if err := s.GetSetting(ctx, "media.require", &require); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(require) == 0 {
+		return nil, nil
+	}
+	return require, nil
+}
+
 // ServerChecks returns the latest extensible check outcome per platform for a
 // server (most recent run wins), for the admin detail view.
 func (s *Store) ServerChecks(ctx context.Context, serverID int64) ([]model.CheckOutcome, error) {

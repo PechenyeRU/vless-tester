@@ -27,6 +27,9 @@ type Job struct {
 	// Checks lists the media-unlock platforms the coordinator wants probed for
 	// this job (empty when media checks are disabled).
 	Checks []string `json:"checks,omitempty"`
+	// Require lists platforms the server must unlock to be worth a speed test;
+	// when set and unmet, the worker skips the expensive speed leg.
+	Require []string `json:"require,omitempty"`
 }
 
 // Result is one measurement the worker reports back for a claimed job.

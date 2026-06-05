@@ -5,6 +5,8 @@
 
 	// Protocol types the platform understands (matches model.Protocol).
 	const PROTOCOLS = ['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hysteria', 'tuic', 'anytls', 'socks'];
+	// Media-unlock platforms the workers can probe (matches checks.KnownMediaPlatforms).
+	const MEDIA = ['openai', 'gemini', 'claude', 'spotify', 'netflix', 'youtube', 'disney', 'tiktok'];
 
 	let sources = $state([]);
 	let settings = $state({}); // key -> string (raw JSON text, editable)
@@ -23,6 +25,10 @@
 	let editProtocols = $state(new Set());
 	// Global enabled-protocols set (disabling one excludes it from all checks).
 	let globalProtocols = $state(new Set());
+	// Media settings.
+	let mediaEnabled = $state(false);
+	let mediaTested = $state(new Set());
+	let mediaRequire = $state(new Set());
 
 	async function load() {
 		error = '';
@@ -39,6 +45,23 @@
 			);
 			const enabled = (sett && sett['protocols.enabled']) || PROTOCOLS;
 			globalProtocols = new Set(enabled);
+			mediaEnabled = !!(sett && sett['media.enabled']);
+			mediaTested = new Set((sett && sett['media.platforms']) || []);
+			mediaRequire = new Set((sett && sett['media.require']) || []);
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function saveMedia() {
+		error = '';
+		try {
+			await api.putSettings({
+				'media.enabled': mediaEnabled,
+				'media.platforms': MEDIA.filter((p) => mediaTested.has(p)),
+				'media.require': MEDIA.filter((p) => mediaRequire.has(p))
+			});
+			flash('Media settings saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -342,6 +365,56 @@
 		</div>
 		<div class="mt-3">
 			<button class="btn btn-primary btn-sm" onclick={saveGlobalProtocols}>Save protocols</button>
+		</div>
+	</div>
+</div>
+
+<div class="card bg-base-100 shadow mb-6">
+	<div class="card-body">
+		<h2 class="card-title text-lg">Media unlock</h2>
+		<label class="label cursor-pointer justify-start gap-2 w-fit">
+			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={mediaEnabled} />
+			<span class="label-text">Enable media-unlock checks</span>
+		</label>
+
+		<div class="mt-2">
+			<span class="label-text">Tested platforms <span class="text-base-content/50">(probed and shown per node)</span></span>
+			<div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+				{#each MEDIA as p}
+					<label class="label cursor-pointer gap-1 py-0">
+						<input
+							type="checkbox"
+							class="checkbox checkbox-sm"
+							checked={mediaTested.has(p)}
+							onchange={() => (mediaTested = toggleIn(mediaTested, p))}
+						/>
+						<span class="text-sm mono">{p}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="mt-3">
+			<span class="label-text">
+				Required to unlock <span class="text-base-content/50">(node must unlock all of these, or its speed test is skipped — saves time)</span>
+			</span>
+			<div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+				{#each MEDIA as p}
+					<label class="label cursor-pointer gap-1 py-0">
+						<input
+							type="checkbox"
+							class="checkbox checkbox-sm"
+							checked={mediaRequire.has(p)}
+							onchange={() => (mediaRequire = toggleIn(mediaRequire, p))}
+						/>
+						<span class="text-sm mono">{p}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="mt-3">
+			<button class="btn btn-primary btn-sm" onclick={saveMedia}>Save media settings</button>
 		</div>
 	</div>
 </div>

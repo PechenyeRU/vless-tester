@@ -32,6 +32,7 @@ type fakeStore struct {
 	recorded       []model.TestRun
 	nacked         []int64
 	mediaPlatforms []string
+	mediaRequire   []string
 }
 
 func newFake() *fakeStore {
@@ -79,7 +80,8 @@ func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64)
 	}
 	return n, nil
 }
-func (f *fakeStore) MediaChecks(_ context.Context) ([]string, error) { return f.mediaPlatforms, nil }
+func (f *fakeStore) MediaChecks(_ context.Context) ([]string, error)  { return f.mediaPlatforms, nil }
+func (f *fakeStore) MediaRequire(_ context.Context) ([]string, error) { return f.mediaRequire, nil }
 
 // handlerProvider is satisfied by both *Server (worker plane) and *AdminServer
 // (admin plane), so the do() helper drives either.

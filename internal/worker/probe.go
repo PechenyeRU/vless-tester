@@ -62,8 +62,16 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 	}
 
 	// Media-unlock probes run through the same proxy once the server is alive,
-	// independent of the speed result.
+	// before the expensive speed test so a node that fails the media filter never
+	// reaches it (latency -> media -> speed).
 	res.Checks = p.runMedia(ctx, client, job.Checks)
+
+	// Media gate: if the coordinator requires certain unlocks and this node does
+	// not provide them, skip the speed test to save the bandwidth-heavy leg.
+	if !passesRequire(res.Checks, job.Require) {
+		res.Error = "skipped speed: required media not unlocked"
+		return res
+	}
 
 	// Bandwidth-sensitive: only a bounded number of speed legs run at once.
 	if p.SpeedGate != nil {
@@ -84,6 +92,26 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		res.Error = sp.Detail
 	}
 	return res
+}
+
+// passesRequire reports whether every required platform unlocked. An empty
+// requirement always passes (no media gating).
+func passesRequire(checks []model.CheckOutcome, require []string) bool {
+	if len(require) == 0 {
+		return true
+	}
+	unlocked := make(map[string]bool, len(checks))
+	for _, c := range checks {
+		if c.Passed {
+			unlocked[c.Name] = true
+		}
+	}
+	for _, name := range require {
+		if !unlocked[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // runMedia probes each requested platform through the proxy and returns the

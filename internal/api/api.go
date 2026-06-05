@@ -37,6 +37,9 @@ type Store interface {
 	// MediaChecks returns the media-unlock platforms to probe, or nil when media
 	// checks are disabled.
 	MediaChecks(ctx context.Context) ([]string, error)
+	// MediaRequire returns the platforms a server must unlock to be worth a speed
+	// test, or nil when there is no media gating.
+	MediaRequire(ctx context.Context) ([]string, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity and
@@ -94,6 +97,20 @@ func authWorkerID(r *http.Request, fallback string) string {
 // (nil = no restriction).
 func authWorkerProtocols(r *http.Request) []string {
 	return identityFrom(r.Context()).protocols
+}
+
+// unionStrings returns a with any items of b not already present appended,
+// preserving order and dropping duplicates.
+func unionStrings(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, s := range append(append([]string{}, a...), b...) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func bearerToken(r *http.Request) string {
@@ -229,6 +246,7 @@ type claimedJob struct {
 	Phase    string   `json:"phase"`
 	Protocol string   `json:"protocol"`
 	Checks   []string `json:"checks,omitempty"`
+	Require  []string `json:"require,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -258,12 +276,22 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "claim failed")
 		return
 	}
-	// The platform list is policy the coordinator owns; it rides along with every
-	// claimed job so the worker knows what to probe.
+	// The media policy is the coordinator's; it rides along with every claimed
+	// job so the worker knows what to probe and which unlocks gate the speed test.
+	// Media gating only applies when checks are enabled; required platforms are
+	// folded into the probe set so a requirement is always actually measured.
 	platforms, err := s.Store.MediaChecks(r.Context())
 	if err != nil {
 		s.logf("api: claim %s: media settings: %v", workerID, err)
 		platforms = nil // media checks are best-effort; never fail a claim over them
+	}
+	var require []string
+	if len(platforms) > 0 {
+		if require, err = s.Store.MediaRequire(r.Context()); err != nil {
+			s.logf("api: claim %s: media require: %v", workerID, err)
+			require = nil
+		}
+		platforms = unionStrings(platforms, require)
 	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
@@ -274,6 +302,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			Phase:    string(j.Phase),
 			Protocol: string(j.Protocol),
 			Checks:   platforms,
+			Require:  require,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

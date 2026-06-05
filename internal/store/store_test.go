@@ -61,6 +61,11 @@ func newTestStore(t *testing.T) *store.Store {
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
+	// Settings persist across tests (not truncated); reset the ones tests mutate
+	// to deterministic defaults so suites stay isolated.
+	_ = st.SetSetting(ctx, "protocols.enabled", []string{})
+	_ = st.SetSetting(ctx, "media.enabled", false)
+	_ = st.SetSetting(ctx, "media.require", []string{})
 	t.Cleanup(st.Close)
 	return st
 }
