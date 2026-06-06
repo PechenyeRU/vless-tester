@@ -68,3 +68,40 @@ func Dedup(servers []model.Server) (unique []model.Server, dropped int) {
 	}
 	return unique, dropped
 }
+
+// Deduper accumulates servers across many subscription bodies while holding only
+// the unique set. Ingesting hundreds of heavily-overlapping subscriptions and
+// then calling Dedup once would hold every duplicate in memory at the peak (plus
+// a second full copy during the dedup); feeding each parsed batch through Add
+// instead drops duplicates on arrival, so memory tracks the unique count, not the
+// raw total. It is not safe for concurrent use: callers fanning out fetches must
+// serialize Add (e.g. behind a mutex).
+type Deduper struct {
+	seen   map[string]struct{}
+	unique []model.Server
+}
+
+// NewDeduper returns an empty Deduper ready for Add.
+func NewDeduper() *Deduper {
+	return &Deduper{seen: make(map[string]struct{})}
+}
+
+// Add merges a batch, keeping the first occurrence of each fingerprint and
+// dropping the rest. It returns how many servers were newly added.
+func (d *Deduper) Add(servers []model.Server) (added int) {
+	for _, s := range servers {
+		if _, ok := d.seen[s.Fingerprint]; ok {
+			continue
+		}
+		d.seen[s.Fingerprint] = struct{}{}
+		d.unique = append(d.unique, s)
+		added++
+	}
+	return added
+}
+
+// Servers returns the accumulated unique servers in first-seen order. The slice
+// is owned by the Deduper; do not mutate it.
+func (d *Deduper) Servers() []model.Server {
+	return d.unique
+}

@@ -158,6 +158,29 @@ func TestDedup(t *testing.T) {
 	}
 }
 
+func TestDeduperAddAcrossBatches(t *testing.T) {
+	link := "vless://" + sampleUUID + "@example.com:443?type=ws&sni=example.com"
+	batch1, _ := ParseList(strings.Join([]string{link + "#a", "trojan://pw@t.example.com:443#t"}, "\n"))
+	// Second batch overlaps the first entirely on fingerprint, plus one new node,
+	// modeling two subscriptions that share most of their endpoints.
+	batch2, _ := ParseList(strings.Join([]string{link + "#dup", "ss://YWVzLTI1Ni1nY206cHc@s.example.com:8388#s"}, "\n"))
+
+	d := NewDeduper()
+	if added := d.Add(batch1); added != 2 {
+		t.Fatalf("first batch added = %d, want 2", added)
+	}
+	if added := d.Add(batch2); added != 1 {
+		t.Fatalf("second batch added = %d, want 1 (one new, one duplicate)", added)
+	}
+	if got := len(d.Servers()); got != 3 {
+		t.Fatalf("unique = %d, want 3", got)
+	}
+	// First-seen order is preserved: batch1's two, then batch2's new one.
+	if d.Servers()[0].Host != "example.com" || d.Servers()[2].Host != "s.example.com" {
+		t.Fatalf("first-seen order not preserved: %+v", d.Servers())
+	}
+}
+
 func TestParseSubscriptionBase64(t *testing.T) {
 	links := "vless://" + sampleUUID + "@example.com:443#a\ntrojan://pw@t.example.com:443#b"
 	encoded := base64.StdEncoding.EncodeToString([]byte(links))

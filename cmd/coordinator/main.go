@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -309,25 +310,57 @@ func (l liveSettings) NotifyURLs(ctx context.Context) (bool, []string) {
 	return enabled, urls
 }
 
-// loadServers fetches and parses all enabled ingest sources.
+// maxSourceFetch caps how many subscription sources are fetched at once. The
+// fetch is network-bound, so a serial loop over hundreds of sources takes
+// forever; a bounded pool keeps the wall-clock low without opening hundreds of
+// concurrent connections.
+const maxSourceFetch = 16
+
+// maxSubscriptionBytes caps a single subscription response body (32 MiB). Far
+// above any real link list, but bounds memory against a runaway or hostile
+// source.
+const maxSubscriptionBytes = 32 << 20
+
+// loadServers fetches and parses all enabled ingest sources concurrently, folding
+// each parsed batch into a shared deduper as it arrives. Subscriptions overlap
+// heavily, so deduping on arrival (rather than accumulating every duplicate and
+// deduping once at the end) keeps peak memory proportional to the unique server
+// count instead of the raw total across all sources.
 func loadServers(ctx context.Context, st *store.Store) ([]model.Server, error) {
 	sources, err := st.ListSources(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var all []model.Server
+
+	var (
+		mu    sync.Mutex
+		dedup = ingest.NewDeduper()
+		wg    sync.WaitGroup
+		sem   = make(chan struct{}, maxSourceFetch)
+	)
 	for _, src := range sources {
-		body, err := readSource(ctx, src)
-		if err != nil {
-			log.Printf("source %s: %v", src.Location, err)
-			continue
-		}
-		servers, _ := ingest.ParseSubscription(body)
-		all = append(all, servers...)
-		_ = st.TouchSource(ctx, src.ID)
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(src model.Source) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			body, err := readSource(ctx, src)
+			if err != nil {
+				log.Printf("source %s: %v", src.Location, err)
+				return
+			}
+			servers, _ := ingest.ParseSubscription(body)
+			// Drop the body before locking so only the parsed servers (and never
+			// many full bodies plus the shared unique set) coexist at the peak.
+			mu.Lock()
+			dedup.Add(servers)
+			mu.Unlock()
+			_ = st.TouchSource(ctx, src.ID)
+		}(src)
 	}
-	unique, _ := ingest.Dedup(all)
-	return unique, nil
+	wg.Wait()
+	return dedup.Servers(), nil
 }
 
 func readSource(ctx context.Context, src model.Source) (string, error) {
@@ -349,7 +382,11 @@ func readSource(ctx context.Context, src model.Source) (string, error) {
 			return "", err
 		}
 		defer func() { _ = resp.Body.Close() }()
-		b, err := io.ReadAll(resp.Body)
+		// Cap the body: a subscription is base64 text of share links (a few MB even
+		// for tens of thousands of nodes). Without a limit a single huge or
+		// misbehaving response would read straight into RAM and could OOM the
+		// coordinator on its own.
+		b, err := io.ReadAll(io.LimitReader(resp.Body, maxSubscriptionBytes))
 		return string(b), err
 	default:
 		return "", fmt.Errorf("unknown source kind %q", src.Kind)
