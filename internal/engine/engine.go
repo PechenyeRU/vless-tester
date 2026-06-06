@@ -275,9 +275,7 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 		}
 		enqueued++
 	}
-	if enqueued == 0 {
-		e.logf("engine: dispatch enqueued no servers (%d candidates)", len(candidates))
-	}
+	e.logf("engine: dispatch enqueued %d of %d candidates (batch %d, fanout %d)", enqueued, len(candidates), batchID, n)
 	return batchID, true, nil
 }
 

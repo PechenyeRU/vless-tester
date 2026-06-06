@@ -107,8 +107,8 @@
 	let speed = $state({ download_url: '', upload_url: '', streams: 6, download_mb: 0, timeout_ms: 30000, adaptive: true });
 	// Output filters.
 	let output = $state({ node_prefix: '', success_limit: 0, name_include: '', name_exclude: '' });
-	// Dispatch knobs.
-	let dispatch = $state({ shuffle: false, max_probes: 0 });
+	// Dispatch knobs. max_probes caps servers tested per cycle (default 5000; 0 = all).
+	let dispatch = $state({ shuffle: false, max_probes: 5000 });
 	// Raw settings table (collapsed by default).
 	let showRaw = $state(false);
 
@@ -156,7 +156,7 @@
 			};
 			dispatch = {
 				shuffle: !!(sett && sett['dispatch.shuffle']),
-				max_probes: (sett && sett['dispatch.max_probes']) ?? 0
+				max_probes: (sett && sett['dispatch.max_probes']) ?? 5000
 			};
 			speed = {
 				download_url: (sett && sett['speed.download_url']) || '',
@@ -894,18 +894,21 @@
 		</div>
 
 		<div class="divider my-2"></div>
-		<div class="flex flex-wrap items-end gap-4">
-			<label class="label cursor-pointer gap-2">
-				<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={dispatch.shuffle} />
-				<span class="label-text">Shuffle test order</span>
-				<Help tip="Randomize the server order each cycle, so with a cap a large list is sampled across runs instead of always testing the same prefix." />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Max probes / run <span class="text-base-content/50">(0 = all)</span></span>
-				<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={dispatch.max_probes} />
-			</label>
-			<button class="btn btn-primary btn-sm" onclick={saveDispatch}>Save dispatch</button>
-		</div>
+		<details class="rounded border border-base-300 p-2">
+			<summary class="cursor-pointer text-sm font-medium">Advanced dispatch</summary>
+			<div class="mt-3 flex flex-wrap items-end gap-4">
+				<label class="label cursor-pointer gap-2">
+					<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={dispatch.shuffle} />
+					<span class="label-text">Shuffle test order</span>
+					<Help tip="Randomize the server order each cycle, so with a cap a large list is sampled across runs instead of always testing the same prefix." />
+				</label>
+				<label class="form-control">
+					<span class="label-text mb-1">Max probes / run <span class="text-base-content/50">(default 5000; 0 = all)</span></span>
+					<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={dispatch.max_probes} />
+				</label>
+				<button class="btn btn-primary btn-sm" onclick={saveDispatch}>Save dispatch</button>
+			</div>
+		</details>
 	</div>
 </div>
 

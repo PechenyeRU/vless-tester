@@ -77,7 +77,9 @@ func run() error {
 				return err
 			}
 			if dispatched {
-				log.Printf("dispatch: batch %d, %d servers enqueued", batch, len(servers))
+				// The engine logs the actual enqueued count (after the per-cycle
+				// cap); here we report how many were loaded from sources.
+				log.Printf("dispatch: batch %d started (%d servers loaded)", batch, len(servers))
 			} else {
 				log.Printf("dispatch: skipped, a cycle is still in progress")
 			}
