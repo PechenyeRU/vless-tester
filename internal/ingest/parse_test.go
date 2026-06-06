@@ -158,6 +158,26 @@ func TestDedup(t *testing.T) {
 	}
 }
 
+func TestParseRejectsNULAndInvalidUTF8(t *testing.T) {
+	base := "vless://" + sampleUUID + "@example.com:443"
+	for name, raw := range map[string]string{
+		"embedded NUL":  base + "\x00#node",
+		"invalid UTF-8": base + "#\xff\xfe",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse(raw); !errors.Is(err, ErrMalformed) {
+				t.Fatalf("Parse(%q) error = %v, want ErrMalformed", raw, err)
+			}
+		})
+	}
+	// A garbage line with a NUL is counted as a failed line, not silently kept,
+	// and never reaches a parsed Server (so it can never poison a Postgres upsert).
+	servers, failed := ParseList(base + "#ok\n" + base + "\x00#bad")
+	if len(servers) != 1 || len(failed) != 1 {
+		t.Fatalf("servers=%d failed=%v, want 1 server and 1 failed line", len(servers), failed)
+	}
+}
+
 func TestDeduperAddAcrossBatches(t *testing.T) {
 	link := "vless://" + sampleUUID + "@example.com:443?type=ws&sni=example.com"
 	batch1, _ := ParseList(strings.Join([]string{link + "#a", "trojan://pw@t.example.com:443#t"}, "\n"))

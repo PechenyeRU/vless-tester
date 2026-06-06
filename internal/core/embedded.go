@@ -101,10 +101,30 @@ func sha256Hex(data []byte) string {
 }
 
 // cacheRoot returns the base directory for extracted artifacts, preferring the
-// user cache dir and falling back to the OS temp dir.
+// user cache dir and falling back to the OS temp dir. The user cache dir is used
+// only when it is actually writable: the worker commonly runs as a non-root user
+// in a distroless image whose $HOME (/home/nonroot/.cache) cannot be created, and
+// os.UserCacheDir reports that path without error. The temp dir is writable even
+// there, so the embedded sing-box always has somewhere to extract.
 func cacheRoot() string {
-	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
+	if dir, err := os.UserCacheDir(); err == nil && dir != "" && writableDir(dir) {
 		return dir
 	}
 	return os.TempDir()
+}
+
+// writableDir reports whether dir exists (creating it if needed) and accepts a
+// write, so cacheRoot never returns a path the extractor will fail to mkdir into.
+func writableDir(dir string) bool {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".write-probe-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
 }

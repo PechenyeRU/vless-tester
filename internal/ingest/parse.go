@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/whitedns/vless-tester/internal/model"
 )
@@ -14,9 +15,20 @@ import (
 // ErrUnsupported is returned for links whose scheme is not a known protocol.
 var ErrUnsupported = fmt.Errorf("unsupported proxy scheme")
 
+// ErrMalformed is returned for links carrying bytes that cannot be persisted:
+// a NUL or any invalid UTF-8 sequence. Subscriptions occasionally serve such
+// garbage, and Postgres text columns reject it (SQLSTATE 22021), so we drop it
+// at parse time rather than letting it abort a later upsert.
+var ErrMalformed = fmt.Errorf("malformed link")
+
 // Parse turns a single share link into a normalized, fingerprinted Server.
 func Parse(raw string) (model.Server, error) {
 	raw = strings.TrimSpace(raw)
+	// A NUL is a valid UTF-8 codepoint but Postgres rejects it, so check it
+	// explicitly alongside the general UTF-8 validity guard.
+	if strings.IndexByte(raw, 0) >= 0 || !utf8.ValidString(raw) {
+		return model.Server{}, fmt.Errorf("%q: %w", clip(raw), ErrMalformed)
+	}
 	scheme, _, ok := strings.Cut(raw, "://")
 	if !ok {
 		return model.Server{}, fmt.Errorf("missing scheme in %q: %w", clip(raw), ErrUnsupported)

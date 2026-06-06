@@ -259,14 +259,24 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 	}
 
 	n := e.fanout(ctx)
+	enqueued := 0
 	for _, srv := range candidates {
+		// A single bad server (e.g. data Postgres rejects) must not abort the
+		// whole cycle: log it and move on, so one poisoned config from a
+		// subscription can't sink the entire batch.
 		id, err := e.Store.UpsertServer(ctx, srv)
 		if err != nil {
-			return 0, false, fmt.Errorf("engine: upsert server: %w", err)
+			e.logf("engine: skip server %s: upsert: %v", srv.Host, err)
+			continue
 		}
 		if _, err := e.Store.EnqueueFanout(ctx, batchID, id, model.PhaseFunnel, n); err != nil {
-			return 0, false, fmt.Errorf("engine: enqueue fanout: %w", err)
+			e.logf("engine: skip server %s: enqueue: %v", srv.Host, err)
+			continue
 		}
+		enqueued++
+	}
+	if enqueued == 0 {
+		e.logf("engine: dispatch enqueued no servers (%d candidates)", len(candidates))
 	}
 	return batchID, true, nil
 }
