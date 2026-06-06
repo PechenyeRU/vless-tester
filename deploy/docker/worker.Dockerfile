@@ -9,10 +9,14 @@
 ARG GO_VERSION=1.26
 ARG SINGBOX_VERSION=1.13.13
 
-FROM golang:${GO_VERSION}-bookworm AS build
+# Build on the native platform and let Go cross-compile to the target arch, so
+# the compiler never runs under QEMU. fetch-singbox.sh takes the arch as an
+# argument (a plain download, not emulated execution), so it still pulls the
+# correct sing-box release to embed for the target arch.
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 # TARGETOS/TARGETARCH are set automatically by buildx; default to linux/amd64
 # for a plain `docker build`.
@@ -20,7 +24,8 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG SINGBOX_VERSION
 RUN bash scripts/fetch-singbox.sh "${TARGETOS:-linux}" "${TARGETARCH:-amd64}" "${SINGBOX_VERSION}"
-RUN CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" \
     go build -tags embed_singbox -ldflags="-s -w" -o /out/worker ./cmd/worker
 
 FROM gcr.io/distroless/base-debian12:nonroot

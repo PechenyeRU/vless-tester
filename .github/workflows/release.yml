@@ -70,6 +70,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             SINGBOX_VERSION=${{ env.SINGBOX_VERSION }}
+          # Persist the module/build/npm cache mounts across runs. Scoped per
+          # component so the two images do not evict each other.
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
   binaries:
     runs-on: ubuntu-latest
