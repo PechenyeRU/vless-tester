@@ -8,9 +8,18 @@ describe('buildServerQuery', () => {
 		expect(buildServerQuery({ country: '', minSpeed: 0 })).toBe('');
 	});
 	it('encodes the populated filter', () => {
-		expect(buildServerQuery({ country: 'FR', worker: 'w1', minSpeed: 5.5, limit: 10 })).toBe(
-			'?country=FR&worker=w1&min_speed=5.5&limit=10'
-		);
+		expect(
+			buildServerQuery({
+				country: 'FR',
+				worker: 'w1',
+				minSpeed: 5.5,
+				q: 'fr1',
+				sort: 'latency',
+				dir: 'asc',
+				page: 2,
+				perPage: 50
+			})
+		).toBe('?country=FR&worker=w1&min_speed=5.5&q=fr1&sort=latency&dir=asc&page=2&per_page=50');
 	});
 });
 

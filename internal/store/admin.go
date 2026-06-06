@@ -10,12 +10,46 @@ import (
 
 // ServerFilter narrows a ListServers query. The zero value lists everything.
 // Worker scopes the "latest measurement" to a single vantage point (the per-
-// worker debug view); empty considers every worker's runs.
+// worker debug view); empty considers every worker's runs. Search matches the
+// host, seq name or country (case-insensitive substring). Sort/Desc choose the
+// order column (whitelisted); Limit/Offset paginate.
 type ServerFilter struct {
 	Country  string
 	MinSpeed float64
 	Worker   string
+	Search   string
+	Sort     string
+	Desc     bool
 	Limit    int
+	Offset   int
+}
+
+// serverSortColumns whitelists the orderable columns, mapping the API sort key to
+// a safe SQL expression (the value is never user-controlled, so it cannot inject).
+var serverSortColumns = map[string]string{
+	"speed":    "l.dl_mbps",
+	"latency":  "l.latency_ms",
+	"country":  "s.country",
+	"seq":      "s.seq_name",
+	"host":     "s.host",
+	"port":     "s.port",
+	"protocol": "s.protocol",
+	"status":   "l.status",
+	"last_run": "l.run_at",
+}
+
+// orderClause builds a safe "ORDER BY <col> <dir> NULLS LAST, s.id" from the
+// filter, defaulting to fastest-first when the sort key is unknown.
+func (f ServerFilter) orderClause() string {
+	col, ok := serverSortColumns[f.Sort]
+	if !ok {
+		return "l.dl_mbps DESC NULLS LAST, s.id"
+	}
+	dir := "ASC"
+	if f.Desc {
+		dir = "DESC"
+	}
+	return fmt.Sprintf("%s %s NULLS LAST, s.id", col, dir)
 }
 
 // ServerSummary is a server plus its latest measurement, for the dashboard list.
@@ -45,9 +79,14 @@ func (s *Store) ListServers(ctx context.Context, f ServerFilter) ([]ServerSummar
 	if limit <= 0 || limit > 5000 {
 		limit = 1000
 	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
 	// latest picks one run per server (the most recent), optionally scoped to a
-	// worker. The min-speed and country filters apply to that latest row.
-	const q = `
+	// worker. The min-speed, country and search filters apply to that latest row.
+	// The ORDER BY is whitelisted (orderClause), so it is safe to interpolate.
+	q := fmt.Sprintf(`
 		WITH latest AS (
 			SELECT DISTINCT ON (server_id)
 			       server_id, worker_id, latency_ms, dl_mbps, ul_mbps, status, run_at
@@ -63,9 +102,10 @@ func (s *Store) ListServers(ctx context.Context, f ServerFilter) ([]ServerSummar
 		LEFT JOIN latest l ON l.server_id = s.id
 		WHERE ($1 = '' OR s.country = $1)
 		  AND ($2 <= 0 OR l.dl_mbps >= $2)
-		ORDER BY l.dl_mbps DESC NULLS LAST, s.id
-		LIMIT $4`
-	rows, err := s.pool.Query(ctx, q, f.Country, f.MinSpeed, f.Worker, limit)
+		  AND ($5 = '' OR s.host ILIKE '%%' || $5 || '%%' OR s.seq_name ILIKE '%%' || $5 || '%%' OR s.country ILIKE '%%' || $5 || '%%')
+		ORDER BY %s
+		LIMIT $4 OFFSET $6`, f.orderClause())
+	rows, err := s.pool.Query(ctx, q, f.Country, f.MinSpeed, f.Worker, limit, f.Search, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list servers: %w", err)
 	}
@@ -86,6 +126,30 @@ func (s *Store) ListServers(ctx context.Context, f ServerFilter) ([]ServerSummar
 		out = append(out, ss)
 	}
 	return out, rows.Err()
+}
+
+// ListServersCount returns how many servers match the filter (country, min-speed
+// and search), ignoring Limit/Offset. It powers the paginated server list's page
+// count, applying the same latest-run join as ListServers.
+func (s *Store) ListServersCount(ctx context.Context, f ServerFilter) (int, error) {
+	const q = `
+		WITH latest AS (
+			SELECT DISTINCT ON (server_id) server_id, dl_mbps
+			FROM test_runs
+			WHERE ($3 = '' OR worker_id = $3)
+			ORDER BY server_id, run_at DESC
+		)
+		SELECT count(*)
+		FROM servers s
+		LEFT JOIN latest l ON l.server_id = s.id
+		WHERE ($1 = '' OR s.country = $1)
+		  AND ($2 <= 0 OR l.dl_mbps >= $2)
+		  AND ($4 = '' OR s.host ILIKE '%' || $4 || '%' OR s.seq_name ILIKE '%' || $4 || '%' OR s.country ILIKE '%' || $4 || '%')`
+	var n int
+	if err := s.pool.QueryRow(ctx, q, f.Country, f.MinSpeed, f.Worker, f.Search).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count servers: %w", err)
+	}
+	return n, nil
 }
 
 // RunRecord is one historical measurement of a server from one worker, for the

@@ -65,6 +65,9 @@ func (f *fakeAdminStore) ListServers(_ context.Context, fl store.ServerFilter) (
 	f.listFilter = fl
 	return f.servers, nil
 }
+func (f *fakeAdminStore) ListServersCount(_ context.Context, _ store.ServerFilter) (int, error) {
+	return len(f.servers), nil
+}
 func (f *fakeAdminStore) GetServer(_ context.Context, id int64) (model.Server, error) {
 	if f.getErr != nil {
 		return model.Server{}, f.getErr
@@ -381,17 +384,23 @@ func TestAdminListServersParsesFilter(t *testing.T) {
 	f.servers = []store.ServerSummary{{ID: 1, Protocol: model.ProtocolVLESS, Country: "FR"}}
 	s := &AdminServer{Store: f}
 
-	rec := do(t, s, http.MethodGet, "/api/v1/servers?country=FR&min_speed=5.5&worker=swift-otter-1&limit=10", "", ``)
+	rec := do(t, s, http.MethodGet, "/api/v1/servers?country=FR&min_speed=5.5&worker=swift-otter-1&per_page=10&page=2&q=fr1&sort=latency&dir=asc", "", ``)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
 	}
-	if f.listFilter.Country != "FR" || f.listFilter.MinSpeed != 5.5 || f.listFilter.Worker != "swift-otter-1" || f.listFilter.Limit != 10 {
+	if f.listFilter.Country != "FR" || f.listFilter.MinSpeed != 5.5 || f.listFilter.Worker != "swift-otter-1" {
 		t.Fatalf("filter not parsed: %+v", f.listFilter)
 	}
-	var got []store.ServerSummary
+	if f.listFilter.Limit != 10 || f.listFilter.Offset != 10 || f.listFilter.Search != "fr1" || f.listFilter.Sort != "latency" || f.listFilter.Desc {
+		t.Fatalf("pagination/sort/search not parsed: %+v", f.listFilter)
+	}
+	var got struct {
+		Servers []store.ServerSummary `json:"servers"`
+		Total   int                   `json:"total"`
+	}
 	mustJSON(t, rec, &got)
-	if len(got) != 1 || got[0].Country != "FR" {
-		t.Fatalf("unexpected servers: %+v", got)
+	if len(got.Servers) != 1 || got.Servers[0].Country != "FR" || got.Total != 1 {
+		t.Fatalf("unexpected response: %+v", got)
 	}
 }
 

@@ -5,10 +5,20 @@
 	import Help from '$lib/Help.svelte';
 
 	let servers = $state([]);
+	let total = $state(0);
 	let error = $state('');
 	let notice = $state('');
 	let loading = $state(false);
-	let filter = $state({ country: '', worker: '', minSpeed: '', limit: 200 });
+
+	// Query state: real-time search, column sort, pagination.
+	let search = $state('');
+	let sort = $state('speed');
+	let dir = $state('desc');
+	let page = $state(1);
+	let perPage = $state(50);
+	let pages = $derived(Math.max(1, Math.ceil(total / perPage)));
+
+	let searchTimer;
 
 	// Manual add: paste one config link.
 	let newServer = $state('');
@@ -22,13 +32,16 @@
 		loading = true;
 		error = '';
 		try {
-			servers =
+			const res =
 				(await api.servers({
-					country: filter.country.trim(),
-					worker: filter.worker.trim(),
-					minSpeed: Number(filter.minSpeed) || 0,
-					limit: Number(filter.limit) || 200
-				})) || [];
+					q: search.trim(),
+					sort,
+					dir,
+					page,
+					perPage
+				})) || {};
+			servers = res.servers || [];
+			total = res.total || 0;
 		} catch (e) {
 			error = e.message;
 		} finally {
@@ -36,8 +49,42 @@
 		}
 	}
 
-	function reset() {
-		filter = { country: '', worker: '', minSpeed: '', limit: 200 };
+	// Debounced live search: typing resets to the first page and reloads.
+	function onSearchInput() {
+		clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			page = 1;
+			load();
+		}, 300);
+	}
+
+	// defaultDir picks a sensible initial direction per column: high-is-good
+	// numeric/time columns descend, text columns ascend.
+	function defaultDir(col) {
+		return ['speed', 'last_run'].includes(col) ? 'desc' : 'asc';
+	}
+
+	function sortBy(col) {
+		if (sort === col) {
+			dir = dir === 'asc' ? 'desc' : 'asc';
+		} else {
+			sort = col;
+			dir = defaultDir(col);
+		}
+		page = 1;
+		load();
+	}
+
+	function go(p) {
+		if (p >= 1 && p <= pages && p !== page) {
+			page = p;
+			load();
+		}
+	}
+
+	function changePerPage(n) {
+		perPage = n;
+		page = 1;
 		load();
 	}
 
@@ -119,38 +166,27 @@
 	<Help tip="Every ingested node and its latest measurement. Filter by country (e.g. FR), worker, or minimum download speed. Click a name for per-worker history, media unlock and IP risk." pos="bottom" />
 </h1>
 
-<div class="card bg-base-100 shadow mb-4">
-	<div class="card-body p-4">
-		<form
-			class="flex flex-wrap items-end gap-3"
-			onsubmit={(e) => {
-				e.preventDefault();
-				load();
-			}}
-		>
-			<label class="form-control">
-				<span class="label-text mb-1">Country</span>
-				<input class="input input-bordered input-sm w-24" bind:value={filter.country} placeholder="FR" />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Worker</span>
-				<input class="input input-bordered input-sm w-44" bind:value={filter.worker} placeholder="swift-otter-1" />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Min dl (MB/s)</span>
-				<input class="input input-bordered input-sm w-28" type="number" step="0.1" bind:value={filter.minSpeed} />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Limit</span>
-				<input class="input input-bordered input-sm w-24" type="number" bind:value={filter.limit} />
-			</label>
-			<button class="btn btn-primary btn-sm" type="submit">
-				{#if loading}<span class="loading loading-spinner loading-xs"></span>{/if}
-				Filter
-			</button>
-			<button class="btn btn-ghost btn-sm" type="button" onclick={reset}>Reset</button>
-		</form>
-	</div>
+<div class="flex flex-wrap items-center gap-3 mb-4">
+	<label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-64 max-w-md">
+		<span class="text-base-content/50">🔍</span>
+		<input
+			class="grow"
+			type="search"
+			placeholder="Search host, name or country…"
+			bind:value={search}
+			oninput={onSearchInput}
+		/>
+		{#if loading}<span class="loading loading-spinner loading-xs"></span>{/if}
+	</label>
+	<label class="flex items-center gap-2 text-sm text-base-content/60">
+		Per page
+		<select class="select select-bordered select-sm" value={perPage} onchange={(e) => changePerPage(Number(e.currentTarget.value))}>
+			<option value={25}>25</option>
+			<option value={50}>50</option>
+			<option value={100}>100</option>
+			<option value={200}>200</option>
+		</select>
+	</label>
 </div>
 
 <div class="card bg-base-100 shadow mb-4">
@@ -181,7 +217,15 @@
 	<div class="alert alert-error mb-4"><span>{error}</span></div>
 {/if}
 
-<p class="text-sm text-base-content/60 mb-2">{loading ? 'Loading...' : `${servers.length} servers`}</p>
+{#snippet sortable(label, col)}
+	<th class="cursor-pointer select-none hover:text-base-content" onclick={() => sortBy(col)}>
+		{label}{#if sort === col}<span class="ml-0.5">{dir === 'asc' ? '▲' : '▼'}</span>{/if}
+	</th>
+{/snippet}
+
+<p class="text-sm text-base-content/60 mb-2">
+	{loading ? 'Loading…' : `${total.toLocaleString()} servers`}{#if total > 0} · page {page} of {pages}{/if}
+</p>
 
 <div class="card bg-base-100 shadow">
 	<div class="card-body p-0">
@@ -189,8 +233,15 @@
 			<table class="table table-sm">
 				<thead>
 					<tr>
-						<th>Name</th><th>Proto</th><th>Endpoint</th><th>Latency</th>
-						<th>Download</th><th>Status</th><th>Worker</th><th>Age</th><th></th>
+						{@render sortable('Name', 'seq')}
+						{@render sortable('Proto', 'protocol')}
+						{@render sortable('Endpoint', 'host')}
+						{@render sortable('Latency', 'latency')}
+						{@render sortable('Download', 'speed')}
+						{@render sortable('Status', 'status')}
+						<th>Worker</th>
+						{@render sortable('Age', 'last_run')}
+						<th></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -223,6 +274,16 @@
 		</div>
 	</div>
 </div>
+
+{#if pages > 1}
+	<div class="flex items-center justify-center gap-2 mt-4">
+		<button class="btn btn-sm" disabled={page <= 1 || loading} onclick={() => go(1)}>«</button>
+		<button class="btn btn-sm" disabled={page <= 1 || loading} onclick={() => go(page - 1)}>‹ Prev</button>
+		<span class="text-sm text-base-content/70 px-2">Page {page} / {pages}</span>
+		<button class="btn btn-sm" disabled={page >= pages || loading} onclick={() => go(page + 1)}>Next ›</button>
+		<button class="btn btn-sm" disabled={page >= pages || loading} onclick={() => go(pages)}>»</button>
+	</div>
+{/if}
 
 {#if editForm}
 	<div class="modal modal-open">

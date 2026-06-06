@@ -25,7 +25,11 @@ export function buildServerQuery(filter = {}) {
 	if (filter.country) p.set('country', filter.country);
 	if (filter.worker) p.set('worker', filter.worker);
 	if (filter.minSpeed) p.set('min_speed', String(filter.minSpeed));
-	if (filter.limit) p.set('limit', String(filter.limit));
+	if (filter.q) p.set('q', filter.q);
+	if (filter.sort) p.set('sort', filter.sort);
+	if (filter.dir) p.set('dir', filter.dir);
+	if (filter.page) p.set('page', String(filter.page));
+	if (filter.perPage) p.set('per_page', String(filter.perPage));
 	const s = p.toString();
 	return s ? '?' + s : '';
 }

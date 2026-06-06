@@ -31,6 +31,7 @@ import (
 // satisfies it; tests inject a fake.
 type AdminStore interface {
 	ListServers(ctx context.Context, f store.ServerFilter) ([]store.ServerSummary, error)
+	ListServersCount(ctx context.Context, f store.ServerFilter) (int, error)
 	GetServer(ctx context.Context, id int64) (model.Server, error)
 	UpsertServer(ctx context.Context, srv model.Server) (int64, error)
 	UpdateServer(ctx context.Context, id int64, srv model.Server) (bool, error)
@@ -366,12 +367,31 @@ func (s *AdminServer) handleServers(w http.ResponseWriter, r *http.Request) {
 	f := store.ServerFilter{
 		Country: q.Get("country"),
 		Worker:  q.Get("worker"),
+		Search:  q.Get("q"),
+		Sort:    q.Get("sort"),
+		Desc:    q.Get("dir") != "asc", // default newest/fastest-first (desc)
 	}
 	if v := q.Get("min_speed"); v != "" {
 		f.MinSpeed, _ = strconv.ParseFloat(v, 64)
 	}
-	if v := q.Get("limit"); v != "" {
-		f.Limit, _ = strconv.Atoi(v)
+
+	// Pagination: page (1-based) + per_page, clamped to a sane window.
+	perPage := 50
+	if v, _ := strconv.Atoi(q.Get("per_page")); v > 0 && v <= 500 {
+		perPage = v
+	}
+	page := 1
+	if v, _ := strconv.Atoi(q.Get("page")); v > 1 {
+		page = v
+	}
+	f.Limit = perPage
+	f.Offset = (page - 1) * perPage
+
+	total, err := s.Store.ListServersCount(r.Context(), f)
+	if err != nil {
+		s.logf("api: count servers: %v", err)
+		writeErr(w, http.StatusInternalServerError, "list servers failed")
+		return
 	}
 	servers, err := s.Store.ListServers(r.Context(), f)
 	if err != nil {
@@ -379,7 +399,15 @@ func (s *AdminServer) handleServers(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "list servers failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, servers)
+	if servers == nil {
+		servers = []store.ServerSummary{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"servers":  servers,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
+	})
 }
 
 // --- GET /servers/{id} ---
