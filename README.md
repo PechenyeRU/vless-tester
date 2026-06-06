@@ -162,7 +162,9 @@ All configuration is via environment variables (12-factor); see
 | `COORDINATOR_URL` | worker | control-plane endpoint |
 | `WORKER_TOKEN` | worker | per-worker auth + identity (required) |
 | `COORDINATOR_PROXY` | worker | optional SOCKS5 for the control channel only |
-| `WORKER_CAPACITY` | worker | optional; auto-measured via a baseline self-test when empty |
+| `WORKER_CAP_SPEED` | worker | concurrent speed tests (default 4); raise on fast links — each test saturates the proxied node, not your uplink |
+| `WORKER_CAP_LATENCY` | worker | concurrent latency probes + default claim batch size (default 200) |
+| `WORKER_BW_MBPS` | worker | bandwidth reported to the coordinator for fleet sizing (not throttled locally); auto-measured when empty |
 
 Runtime preferences (scheduler intervals, thresholds, approval policy, speed-test
 parameters, output filters) live in the `settings` table and are editable from the
@@ -228,7 +230,7 @@ internal/naming   geoip, emoji, stable sequence names
 internal/output   subscription formats, README, Git publish
 internal/convert  Clash / sing-box / Surge / v2ray renderers
 internal/api      REST handlers (worker control plane + admin)
-internal/worker   worker loop: capacity, concurrency, token-bucket
+internal/worker   worker loop: capacity, concurrency, speed semaphore
 web/              SvelteKit admin dashboard (embedded into the coordinator)
 deploy/docker     coordinator and worker Dockerfiles
 ```
