@@ -46,7 +46,7 @@ func bump(cur, limit *int32) {
 	}
 }
 
-func TestRunOnceConcurrentWithGatedSpeed(t *testing.T) {
+func TestRunConcurrentWithGatedSpeed(t *testing.T) {
 	const jobs = 8
 	batch := make([]Job, jobs)
 	for i := range batch {
@@ -54,14 +54,12 @@ func TestRunOnceConcurrentWithGatedSpeed(t *testing.T) {
 	}
 	coord := &fakeCoord{claimQueue: [][]Job{batch}}
 	run := &trackRunner{gate: checks.NewSemaphore(2), delay: 10 * time.Millisecond}
-	w := &Worker{ID: "w1", Coord: coord, Runner: run, Concurrency: jobs}
+	w := &Worker{ID: "w1", Coord: coord, Runner: run, Concurrency: jobs, Idle: time.Millisecond}
 
-	n, err := w.RunOnce(context.Background())
-	if err != nil || n != jobs {
-		t.Fatalf("RunOnce n=%d err=%v, want %d", n, err, jobs)
-	}
-	if len(coord.reported) != 1 || len(coord.reported[0]) != jobs {
-		t.Fatalf("reported %+v, want %d results", coord.reported, jobs)
+	runFor(w, 500*time.Millisecond)
+
+	if got := coord.reportedIDs(); len(got) != jobs {
+		t.Fatalf("reported %d results, want %d", len(got), jobs)
 	}
 
 	// Latency ran wide (more than the speed gate would allow)...

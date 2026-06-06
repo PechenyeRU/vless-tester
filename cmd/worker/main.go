@@ -86,13 +86,19 @@ func run() error {
 		batchMax = capacity.Latency
 	}
 
+	// Tunable probe timeouts: most servers in the catalog are dead, so the
+	// latency timeout dominates per-probe time; lowering it raises throughput at
+	// the cost of cutting slow-but-alive servers. Configurable without a rebuild.
+	latencyTimeout := envDuration("WORKER_LATENCY_TIMEOUT", 5*time.Second)
+	startTimeout := envDuration("WORKER_START_TIMEOUT", 8*time.Second)
+
 	w := &worker.Worker{
 		ID:       id,
 		Capacity: capacity,
 		Coord:    coord,
 		Runner: worker.ProbeRunner{
-			Options:   core.Options{StartTimeout: 8 * time.Second},
-			Latency:   checks.LatencyCheck{Timeout: 5 * time.Second},
+			Options:   core.Options{StartTimeout: startTimeout},
+			Latency:   checks.LatencyCheck{Timeout: latencyTimeout},
 			Speed:     checks.SpeedCheck{Config: speedCfg},
 			SpeedGate: speedGate,
 			NewClient: engine.SOCKS5Client,
@@ -118,6 +124,17 @@ func envInt(key string) int {
 		}
 	}
 	return 0
+}
+
+// envDuration reads a Go duration (e.g. "3s", "2500ms") from key, falling back to
+// def when unset or unparseable.
+func envDuration(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return def
 }
 
 func envFloat(key string) float64 {
