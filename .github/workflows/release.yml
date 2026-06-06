@@ -1,0 +1,122 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  # Pinned to match the Dockerfile/Makefile default; bump in lockstep.
+  SINGBOX_VERSION: "1.13.13"
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - component: coordinator
+            dockerfile: deploy/docker/coordinator.Dockerfile
+          - component: worker
+            dockerfile: deploy/docker/worker.Dockerfile
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: resolve version
+        id: ver
+        run: echo "version=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: lowercase owner
+        id: owner
+        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ steps.owner.outputs.name }}/vless-tester/${{ matrix.component }}
+          tags: |
+            type=raw,value=${{ steps.ver.outputs.version }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            SINGBOX_VERSION=${{ env.SINGBOX_VERSION }}
+
+  binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: embed sing-box
+        run: bash scripts/fetch-singbox.sh linux ${{ matrix.goarch }} "${SINGBOX_VERSION}"
+
+      - name: build worker
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -tags embed_singbox -ldflags="-s -w" -o "worker-linux-${{ matrix.goarch }}" ./cmd/worker
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: worker-linux-${{ matrix.goarch }}
+          path: worker-linux-${{ matrix.goarch }}
+
+  release:
+    needs: [images, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+
+      - name: checksums
+        run: sha256sum worker-* > checksums.txt
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --generate-notes \
+            worker-* checksums.txt
