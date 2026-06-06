@@ -56,3 +56,18 @@ func TestExtractMMDBMissingEntry(t *testing.T) {
 		t.Fatal("expected error when archive has no .mmdb entry")
 	}
 }
+
+func TestMMDBOpens(t *testing.T) {
+	// A missing file and a present-but-corrupt file must both report not-openable,
+	// so EnsureDatabase re-downloads instead of trusting a bad file forever.
+	if mmdbOpens(filepath.Join(t.TempDir(), "nope.mmdb")) {
+		t.Fatal("mmdbOpens = true for a missing file, want false")
+	}
+	corrupt := filepath.Join(t.TempDir(), "corrupt.mmdb")
+	if err := os.WriteFile(corrupt, []byte("not a real mmdb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if mmdbOpens(corrupt) {
+		t.Fatal("mmdbOpens = true for a corrupt file, want false")
+	}
+}

@@ -35,12 +35,25 @@ func NeedsRefresh(path string, maxAge time.Duration) bool {
 	return time.Since(info.ModTime()) > maxAge
 }
 
-// EnsureDatabase downloads the database to destPath when it is missing or stale.
+// EnsureDatabase downloads the database to destPath when it is missing, stale, or
+// present-but-unreadable. The openability check matters: a truncated or corrupt
+// file left on the volume would otherwise be skipped by the modtime check forever
+// and silently break country resolution (the resolver just returns "unknown").
 func (d *MaxMindDownloader) EnsureDatabase(ctx context.Context, destPath string, maxAge time.Duration) error {
-	if !NeedsRefresh(destPath, maxAge) {
+	if !NeedsRefresh(destPath, maxAge) && mmdbOpens(destPath) {
 		return nil
 	}
 	return d.Download(ctx, destPath)
+}
+
+// mmdbOpens reports whether destPath is a valid, openable MaxMind database.
+func mmdbOpens(path string) bool {
+	r, err := OpenMaxMind(path)
+	if err != nil {
+		return false
+	}
+	_ = r.Close()
+	return true
 }
 
 // Download fetches the latest database tarball and writes the extracted .mmdb to

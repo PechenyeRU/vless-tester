@@ -140,15 +140,22 @@ func run() error {
 
 	// GeoIP refresh (only when credentials are configured).
 	if acc, key := os.Getenv("MAXMIND_ACCOUNT_ID"), os.Getenv("MAXMIND_LICENSE_KEY"); acc != "" && key != "" {
+		log.Printf("geoip: credentials present, db path %s", geoipPath())
 		dl := &naming.MaxMindDownloader{AccountID: acc, LicenseKey: key}
 		sched.Add(scheduler.Job{
 			Name:       "geoip-refresh",
 			IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "geoip.refresh", 336*time.Hour) },
 			RunOnStart: true, // download the DB on boot so country resolves from the first cycle
 			Run: func(ctx context.Context) error {
-				return dl.EnsureDatabase(ctx, geoipPath(), 14*24*time.Hour)
+				if err := dl.EnsureDatabase(ctx, geoipPath(), 14*24*time.Hour); err != nil {
+					return err
+				}
+				log.Printf("geoip: database ready at %s", geoipPath())
+				return nil
 			},
 		})
+	} else {
+		log.Printf("geoip: MaxMind credentials not set; country resolution disabled")
 	}
 
 	// HTTP surface: the untrusted worker control plane (per-worker tokens) and
