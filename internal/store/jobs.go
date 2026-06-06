@@ -46,6 +46,40 @@ func (s *Store) EnqueueFanout(ctx context.Context, batchID, serverID int64, phas
 	return tag.RowsAffected(), nil
 }
 
+// BulkEnqueueFanout queues n slots (0..n-1) for every server whose fingerprint
+// is in fingerprints, within a batch, using one set-based statement per chunk
+// instead of a round-trip per server. This is what lets a cycle enqueue a large
+// catalog cheaply; capacity-aware claiming then bounds what each worker pulls.
+// Slots that already have an open job are left untouched (idempotent), and
+// fingerprints with no matching server row are simply skipped. It returns how
+// many new jobs were created.
+func (s *Store) BulkEnqueueFanout(ctx context.Context, batchID int64, fingerprints []string, phase model.JobPhase, n int) (int64, error) {
+	if n < 1 {
+		n = 1
+	}
+	const chunkSize = 1000
+	const q = `
+		INSERT INTO jobs (server_id, phase, slot, batch_id)
+		SELECT srv.id, $1, g, $2
+		FROM servers srv
+		JOIN unnest($3::text[]) AS fp ON srv.fingerprint = fp
+		CROSS JOIN generate_series(0, $4 - 1) AS g
+		ON CONFLICT (server_id, phase, slot) WHERE state IN ('queued', 'claimed') DO NOTHING`
+	var total int64
+	for start := 0; start < len(fingerprints); start += chunkSize {
+		end := start + chunkSize
+		if end > len(fingerprints) {
+			end = len(fingerprints)
+		}
+		tag, err := s.pool.Exec(ctx, q, string(phase), batchID, fingerprints[start:end], n)
+		if err != nil {
+			return total, fmt.Errorf("bulk enqueue fanout [%d:%d]: %w", start, end, err)
+		}
+		total += tag.RowsAffected()
+	}
+	return total, nil
+}
+
 // ClaimJobs atomically leases up to max queued jobs (optionally filtered by
 // phase) to a worker, using FOR UPDATE SKIP LOCKED so concurrent workers never
 // grab the same job. To keep the N proofs distinct, a worker is never given a

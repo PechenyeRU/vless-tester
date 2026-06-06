@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/whitedns/vless-tester/internal/model"
 )
@@ -29,6 +30,39 @@ func (s *Store) UpsertServer(ctx context.Context, srv model.Server) (int64, erro
 		return 0, fmt.Errorf("upsert server: %w", err)
 	}
 	return id, nil
+}
+
+// BulkUpsertServers inserts or updates many servers in chunked multi-row
+// statements, so the full ingested catalog is persisted (and visible in the
+// dashboard) regardless of how many are enqueued for testing this cycle. Input
+// must be fingerprint-deduplicated (the ingest Deduper guarantees this); two rows
+// with the same fingerprint in one statement would error. IDs are not returned —
+// callers that need an id use UpsertServer for the smaller set they enqueue.
+func (s *Store) BulkUpsertServers(ctx context.Context, servers []model.Server) error {
+	const chunkSize = 1000
+	for start := 0; start < len(servers); start += chunkSize {
+		end := start + chunkSize
+		if end > len(servers) {
+			end = len(servers)
+		}
+		chunk := servers[start:end]
+		var b strings.Builder
+		b.WriteString("INSERT INTO servers (fingerprint, raw_uri, protocol, host, port) VALUES ")
+		args := make([]any, 0, len(chunk)*5)
+		for i, srv := range chunk {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			n := i * 5
+			fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5)
+			args = append(args, srv.Fingerprint, srv.RawURI, string(srv.Protocol), srv.Host, srv.Port)
+		}
+		b.WriteString(" ON CONFLICT (fingerprint) DO UPDATE SET raw_uri = EXCLUDED.raw_uri, last_seen = now()")
+		if _, err := s.pool.Exec(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("bulk upsert servers [%d:%d]: %w", start, end, err)
+		}
+	}
+	return nil
 }
 
 // GetServer loads a server by ID.

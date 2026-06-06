@@ -107,8 +107,8 @@
 	let speed = $state({ download_url: '', upload_url: '', streams: 6, download_mb: 0, timeout_ms: 30000, adaptive: true });
 	// Output filters.
 	let output = $state({ node_prefix: '', success_limit: 0, name_include: '', name_exclude: '' });
-	// Dispatch knobs. max_probes caps servers tested per cycle (default 5000; 0 = all).
-	let dispatch = $state({ shuffle: false, max_probes: 5000 });
+	// Dispatch knobs. max_probes optionally caps servers tested per cycle (0 = all).
+	let dispatch = $state({ shuffle: false, max_probes: 0 });
 	// Raw settings table (collapsed by default).
 	let showRaw = $state(false);
 
@@ -156,7 +156,7 @@
 			};
 			dispatch = {
 				shuffle: !!(sett && sett['dispatch.shuffle']),
-				max_probes: (sett && sett['dispatch.max_probes']) ?? 5000
+				max_probes: (sett && sett['dispatch.max_probes']) ?? 0
 			};
 			speed = {
 				download_url: (sett && sett['speed.download_url']) || '',
@@ -903,7 +903,7 @@
 					<Help tip="Randomize the server order each cycle, so with a cap a large list is sampled across runs instead of always testing the same prefix." />
 				</label>
 				<label class="form-control">
-					<span class="label-text mb-1">Max probes / run <span class="text-base-content/50">(default 5000; 0 = all)</span></span>
+					<span class="label-text mb-1">Max probes / run <span class="text-base-content/50">(0 = all; capacity-aware claiming bounds the rest)</span></span>
 					<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={dispatch.max_probes} />
 				</label>
 				<button class="btn btn-primary btn-sm" onclick={saveDispatch}>Save dispatch</button>

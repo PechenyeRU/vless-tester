@@ -127,6 +127,12 @@ func TestDispatchMaxProbes(t *testing.T) {
 	if queued != 1 {
 		t.Fatalf("queued = %d, want 1 (max_probes cap)", queued)
 	}
+	// The cap bounds only what is enqueued for testing; the whole catalog is
+	// still persisted, so the dashboard reflects every ingested server.
+	servers, _ := st.CountServers(ctx)
+	if servers != 2 {
+		t.Fatalf("servers = %d, want 2 (full catalog persisted despite the cap)", servers)
+	}
 }
 
 func TestDistributedCycleEndToEnd(t *testing.T) {

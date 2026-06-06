@@ -144,6 +144,7 @@ func run() error {
 		sched.Add(scheduler.Job{
 			Name:       "geoip-refresh",
 			IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "geoip.refresh", 336*time.Hour) },
+			RunOnStart: true, // download the DB on boot so country resolves from the first cycle
 			Run: func(ctx context.Context) error {
 				return dl.EnsureDatabase(ctx, geoipPath(), 14*24*time.Hour)
 			},
@@ -253,8 +254,14 @@ func apiAddr() string {
 // (remote workers test); it dispatches jobs, reconciles, and publishes. The gate
 // and queue knobs come from settings so they are tunable from the admin UI.
 func buildEngine(_ context.Context, st *store.Store) *engine.Engine {
+	// With MaxMind credentials, the geoip-refresh job downloads the DB on boot;
+	// the reloading resolver opens it once it lands (and on later refreshes),
+	// avoiding the startup race where the file does not yet exist. Without
+	// credentials, fall back to opening a pre-provided file if present.
 	var resolver naming.CountryResolver
-	if path := geoipPath(); fileExists(path) {
+	if os.Getenv("MAXMIND_ACCOUNT_ID") != "" && os.Getenv("MAXMIND_LICENSE_KEY") != "" {
+		resolver = naming.NewReloadingResolver(geoipPath())
+	} else if path := geoipPath(); fileExists(path) {
 		if mm, err := naming.OpenMaxMind(path); err == nil {
 			resolver = mm
 		}

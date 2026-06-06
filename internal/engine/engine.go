@@ -245,8 +245,17 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 		}
 	}
 
-	// Optional shuffle + per-run cap, so a large list can be sampled randomly
-	// across cycles instead of always testing the same prefix.
+	// Persist the full catalog so the dashboard reflects every ingested server,
+	// independent of how many we test this cycle. Done in bulk (set-based) rather
+	// than a round-trip per server, so a 200k-server catalog stays cheap.
+	if err := e.Store.BulkUpsertServers(ctx, candidates); err != nil {
+		return 0, false, fmt.Errorf("engine: persist catalog: %w", err)
+	}
+
+	// Optional shuffle + cap. By default (max_probes 0) the whole catalog is
+	// enqueued: enqueuing is bulk and capacity-aware claiming bounds what each
+	// worker pulls, so a large queue is fine. A cap, when set, samples a subset
+	// per cycle (shuffle rotates which subset across cycles).
 	shuffle, maxProbes, err := e.Store.DispatchSettings(ctx)
 	if err != nil {
 		return 0, false, fmt.Errorf("engine: dispatch settings: %w", err)
@@ -254,28 +263,21 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 	if shuffle {
 		rand.Shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
 	}
-	if maxProbes > 0 && len(candidates) > maxProbes {
-		candidates = candidates[:maxProbes]
+	sample := candidates
+	if maxProbes > 0 && len(sample) > maxProbes {
+		sample = sample[:maxProbes]
 	}
 
-	n := e.fanout(ctx)
-	enqueued := 0
-	for _, srv := range candidates {
-		// A single bad server (e.g. data Postgres rejects) must not abort the
-		// whole cycle: log it and move on, so one poisoned config from a
-		// subscription can't sink the entire batch.
-		id, err := e.Store.UpsertServer(ctx, srv)
-		if err != nil {
-			e.logf("engine: skip server %s: upsert: %v", srv.Host, err)
-			continue
-		}
-		if _, err := e.Store.EnqueueFanout(ctx, batchID, id, model.PhaseFunnel, n); err != nil {
-			e.logf("engine: skip server %s: enqueue: %v", srv.Host, err)
-			continue
-		}
-		enqueued++
+	fingerprints := make([]string, len(sample))
+	for i, srv := range sample {
+		fingerprints[i] = srv.Fingerprint
 	}
-	e.logf("engine: dispatch enqueued %d of %d candidates (batch %d, fanout %d)", enqueued, len(candidates), batchID, n)
+	n := e.fanout(ctx)
+	enqueued, err := e.Store.BulkEnqueueFanout(ctx, batchID, fingerprints, model.PhaseFunnel, n)
+	if err != nil {
+		return 0, false, fmt.Errorf("engine: enqueue fanout: %w", err)
+	}
+	e.logf("engine: dispatch enqueued %d jobs for %d of %d servers (batch %d, fanout %d)", enqueued, len(sample), len(candidates), batchID, n)
 	return batchID, true, nil
 }
 
