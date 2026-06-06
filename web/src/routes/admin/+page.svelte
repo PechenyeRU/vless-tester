@@ -6,57 +6,56 @@
 
 	// Protocol types the platform understands (matches model.Protocol).
 	const PROTOCOLS = ['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hysteria', 'tuic', 'anytls', 'socks'];
-	// Media-unlock platforms the workers can probe (matches checks.KnownMediaPlatforms).
+	// Media platforms the workers can probe (matches checks.KnownMediaPlatforms).
 	const MEDIA = ['openai', 'gemini', 'claude', 'spotify', 'netflix', 'youtube', 'disney', 'tiktok'];
 
-	// The configurable funnel stages run after the latency gate, in order. The UI
-	// lets the operator reorder them and toggle each one's gate.
+	// The funnel filters run after the connectivity check, in order. Each can be
+	// enabled, reordered, and set to drop a node that does not pass it.
 	const FUNNEL_DEFAULT = [
 		{ check: 'media', gate: true },
 		{ check: 'ip_risk', gate: false },
 		{ check: 'speed', gate: false }
 	];
-	const STAGE_META = {
-		latency: { label: 'Latency', desc: 'Connectivity check — always runs first; a node that cannot connect is dropped.' },
-		media: { label: 'Media unlock', desc: 'Probe the streaming/AI platforms selected below.' },
-		ip_risk: { label: 'IP risk', desc: "Score the exit IP's reputation (proxy/datacenter/mobile)." },
-		speed: { label: 'Speed', desc: 'Measure download/upload throughput (the expensive leg).' }
+	const FILTER_META = {
+		media: { label: 'Media unlock', desc: 'Probe whether streaming and AI services work through the node.' },
+		ip_risk: { label: 'IP risk', desc: "Score the exit IP reputation (proxy, datacenter, mobile)." },
+		speed: { label: 'Speed', desc: 'Measure download and upload throughput (the expensive leg).' }
 	};
 
-	// Per-key explanations for the raw settings table.
+	// Per-key explanations for the raw settings table (kept under Advanced).
 	const SETTING_HELP = {
-		'approval.max_latency_ms': 'Max latency (ms) a node may have to be approved.',
-		'approval.min_dl_mbps': 'Min download speed (MB/s) a node must reach to be approved.',
-		'approval.required_workers': 'Distinct workers that must each confirm a node before it is published.',
-		'approval.allow_partial': 'When the fleet is smaller than required_workers, approve with as few as 1.',
-		'speed.streams': 'Parallel download streams used in the speed test.',
+		'approval.max_latency_ms': 'Edited above in "Approval". Max latency (ms) a node may have to be published.',
+		'approval.min_dl_mbps': 'Edited above in "Approval". Min download speed (MB/s) a node must reach.',
+		'approval.required_workers': 'Edited above in "Approval". Distinct workers that must each confirm a node.',
+		'approval.allow_partial': 'Edited above in "Approval". When the fleet is smaller than required, approve with as few as 1.',
+		'speed.streams': 'Edited above in the Speed filter (parallel download streams).',
 		'speed.bytes': 'Max bytes downloaded per speed test (adaptive may stop earlier).',
-		'speed.adaptive': 'Stop the speed test early once throughput is clear.',
+		'speed.adaptive': 'Edited above in the Speed filter (stop the speed test early once throughput is clear).',
 		'dispatch.interval': 'How often a new test cycle is dispatched (e.g. 12h, 30m).',
 		'reconcile.interval': 'How often dead-worker jobs are requeued and drained batches published.',
 		'sources.refresh': 'How often subscription sources are refetched.',
 		'publish.interval': 'How often the working list is published.',
 		'publish.github_repo': 'Separate GitHub repo the working list is pushed to.',
-		'geoip.refresh': 'How often the GeoIP database is refreshed (~2 weeks).',
+		'geoip.refresh': 'How often the GeoIP database is refreshed (about 2 weeks).',
 		'jobs.lease_ttl': 'A claimed job older than this is considered dead and requeued.',
 		'jobs.max_attempts': 'Max requeues before a job is marked failed.',
-		'protocols.enabled': 'Edited above in "Protocols (global)".',
-		'media.enabled': 'Edited above in "Media unlock".',
-		'media.platforms': 'Edited above in "Media unlock" (tested platforms).',
-		'media.require': 'Edited above in "Media unlock" (required to unlock).',
-		'iprisk.enabled': 'Edited above in "Media unlock" (IP-risk scoring).',
-		'dnsleak.enabled': 'Edited above in "Media unlock" (DNS-leak check).',
-		'iprisk.url': 'IP-risk provider URL override (empty = default ip-api.com).',
+		'protocols.enabled': 'Fleet-wide protocol allow-list (empty = all). Per-worker protocols are usually enough; set this only to exclude a protocol everywhere at once.',
+		'media.enabled': 'Edited above in the Media filter.',
+		'media.platforms': 'Edited above in the Media filter (tested platforms).',
+		'media.require': 'Edited above in the Media filter (required to unlock).',
+		'iprisk.enabled': 'Edited above in the IP risk filter.',
+		'dnsleak.enabled': 'Edited above in the DNS leak filter.',
+		'iprisk.url': 'Edited above in the IP risk filter (provider URL; empty uses ip-api.com).',
 		'sub.path': 'Obfuscated token for /sub: when set, the list is only served at /sub/<token> and bare /sub is hidden.',
 		'dispatch.shuffle': 'Edited above in "Output filters" (randomize server order per cycle).',
 		'dispatch.max_probes': 'Edited above in "Output filters" (cap servers tested per cycle; 0 = all).',
-		'funnel.stages': 'Edited above in "Test funnel".',
+		'funnel.stages': 'Edited above in "Filters".',
 		'notify.enabled': 'Edited above in "Notifications".',
 		'notify.urls': 'Edited above in "Notifications" (shoutrrr URLs).',
-		'speed.download_url': 'Edited above in "Speed test" (empty = Cloudflare).',
-		'speed.upload_url': 'Edited above in "Speed test" (empty = Cloudflare).',
-		'speed.download_mb': 'Edited above in "Speed test" (0 = use speed.bytes).',
-		'speed.timeout_ms': 'Edited above in "Speed test" (per-node speed leg timeout).',
+		'speed.download_url': 'Edited above in the Speed filter (empty = Cloudflare).',
+		'speed.upload_url': 'Edited above in the Speed filter (empty = Cloudflare).',
+		'speed.download_mb': 'Edited above in the Speed filter (0 = use speed.bytes).',
+		'speed.timeout_ms': 'Edited above in the Speed filter (per-node speed leg timeout).',
 		'output.node_prefix': 'Edited above in "Output filters" (prepended to each node name).',
 		'output.success_limit': 'Edited above in "Output filters" (0 = unlimited).',
 		'filter.name_include': 'Edited above in "Output filters" (regex; keep only matching names).',
@@ -68,7 +67,9 @@
 	let tokens = $state([]);
 	let error = $state('');
 	let notice = $state('');
-	let newSource = $state({ kind: 'subscription_url', location: '' });
+	// Bulk paste box for sources: one link, config or path per line.
+	let newSourcesText = $state('');
+	let importing = $state(false);
 	let newTokenName = $state('');
 	// Per-worker protocol selection for the new token (empty = all).
 	let newTokenProtocols = $state(new Set());
@@ -78,16 +79,26 @@
 	// Inline protocol editor state: token id -> Set of selected protocols.
 	let editingToken = $state(null);
 	let editProtocols = $state(new Set());
-	// Global enabled-protocols set (disabling one excludes it from all checks).
-	let globalProtocols = $state(new Set());
-	// Media settings.
+	// Fleet-wide protocol allow-list (protocols.enabled). null means no restriction
+	// (all allowed); a non-empty set excludes everything outside it, so those
+	// protocols are shown disabled in the per-worker pickers.
+	let globalEnabled = $state(null);
+	// Filter state.
 	let mediaEnabled = $state(false);
 	let mediaTested = $state(new Set());
 	let mediaRequire = $state(new Set());
 	let ipRiskEnabled = $state(false);
+	let ipRiskUrl = $state('');
 	let dnsLeakEnabled = $state(false);
-	// Funnel pipeline (ordered list of {check, gate}).
+	let speedEnabled = $state(true);
+	// Funnel pipeline (ordered list of {check, gate}); always carries media,
+	// ip_risk and speed so they can be reordered even while disabled.
 	let funnelStages = $state([]);
+	// Which filter's Advanced panel is open (one at a time keeps it tidy).
+	let openFilter = $state('');
+	let savingFilters = $state(false);
+	// Approval (publish) thresholds.
+	let approval = $state({ max_latency_ms: 800, min_dl_mbps: 1, required_workers: 1, allow_partial: true });
 	// Notifications.
 	let notifyEnabled = $state(false);
 	let notifyUrls = $state(''); // one shoutrrr URL per line
@@ -98,29 +109,43 @@
 	let output = $state({ node_prefix: '', success_limit: 0, name_include: '', name_exclude: '' });
 	// Dispatch knobs.
 	let dispatch = $state({ shuffle: false, max_probes: 0 });
+	// Raw settings table (collapsed by default).
+	let showRaw = $state(false);
+
+	// normalizeFunnel guarantees media, ip_risk and speed are all present so each
+	// has a row to reorder and gate, preserving any saved order.
+	function normalizeFunnel(saved) {
+		const order = Array.isArray(saved) && saved.length ? saved.map((s) => ({ ...s })) : FUNNEL_DEFAULT.map((s) => ({ ...s }));
+		for (const def of FUNNEL_DEFAULT) {
+			if (!order.some((s) => s.check === def.check)) order.push({ ...def });
+		}
+		return order;
+	}
 
 	async function load() {
 		error = '';
 		try {
-			const [srcs, sett, toks] = await Promise.all([
-				api.sources(),
-				api.settings(),
-				api.workerTokens()
-			]);
+			const [srcs, sett, toks] = await Promise.all([api.sources(), api.settings(), api.workerTokens()]);
 			sources = srcs || [];
 			tokens = toks || [];
-			settings = Object.fromEntries(
-				Object.entries(sett || {}).map(([k, v]) => [k, JSON.stringify(v)])
-			);
-			const enabled = (sett && sett['protocols.enabled']) || PROTOCOLS;
-			globalProtocols = new Set(enabled);
+			settings = Object.fromEntries(Object.entries(sett || {}).map(([k, v]) => [k, JSON.stringify(v)]));
+			const ge = sett && sett['protocols.enabled'];
+			globalEnabled = Array.isArray(ge) && ge.length ? new Set(ge) : null;
 			mediaEnabled = !!(sett && sett['media.enabled']);
 			mediaTested = new Set((sett && sett['media.platforms']) || []);
 			mediaRequire = new Set((sett && sett['media.require']) || []);
 			ipRiskEnabled = !!(sett && sett['iprisk.enabled']);
+			ipRiskUrl = (sett && sett['iprisk.url']) || '';
 			dnsLeakEnabled = !!(sett && sett['dnsleak.enabled']);
-			const fs = sett && sett['funnel.stages'];
-			funnelStages = Array.isArray(fs) && fs.length ? fs.map((s) => ({ ...s })) : FUNNEL_DEFAULT.map((s) => ({ ...s }));
+			const savedFunnel = sett && sett['funnel.stages'];
+			speedEnabled = !Array.isArray(savedFunnel) || savedFunnel.some((s) => s.check === 'speed');
+			funnelStages = normalizeFunnel(savedFunnel);
+			approval = {
+				max_latency_ms: (sett && sett['approval.max_latency_ms']) ?? 800,
+				min_dl_mbps: (sett && sett['approval.min_dl_mbps']) ?? 1,
+				required_workers: (sett && sett['approval.required_workers']) ?? 1,
+				allow_partial: (sett && sett['approval.allow_partial']) ?? true
+			};
 			notifyEnabled = !!(sett && sett['notify.enabled']);
 			notifyUrls = ((sett && sett['notify.urls']) || []).join('\n');
 			output = {
@@ -146,23 +171,7 @@
 		}
 	}
 
-	async function saveMedia() {
-		error = '';
-		try {
-			await api.putSettings({
-				'media.enabled': mediaEnabled,
-				'media.platforms': MEDIA.filter((p) => mediaTested.has(p)),
-				'media.require': MEDIA.filter((p) => mediaRequire.has(p)),
-				'iprisk.enabled': ipRiskEnabled,
-				'dnsleak.enabled': dnsLeakEnabled
-			});
-			flash('Media settings saved');
-		} catch (e) {
-			error = e.message;
-		}
-	}
-
-	// moveStage reorders a funnel stage up (-1) or down (+1).
+	// moveStage reorders a funnel filter up (-1) or down (+1).
 	function moveStage(i, dir) {
 		const j = i + dir;
 		if (j < 0 || j >= funnelStages.length) return;
@@ -177,11 +186,65 @@
 		funnelStages = next;
 	}
 
-	async function saveFunnel() {
+	function toggleAdvanced(key) {
+		openFilter = openFilter === key ? '' : key;
+	}
+
+	function filterEnabled(check) {
+		if (check === 'media') return mediaEnabled;
+		if (check === 'ip_risk') return ipRiskEnabled;
+		if (check === 'speed') return speedEnabled;
+		return false;
+	}
+
+	function setFilterEnabled(check, on) {
+		if (check === 'media') mediaEnabled = on;
+		else if (check === 'ip_risk') ipRiskEnabled = on;
+		else if (check === 'speed') speedEnabled = on;
+	}
+
+	// saveFilters persists the whole filter section: the funnel order and gates,
+	// each filter's enabled flag, and the per-filter advanced options.
+	async function saveFilters() {
+		error = '';
+		savingFilters = true;
+		try {
+			// Speed only ships as a stage when enabled; media and ip_risk always do
+			// (a disabled one runs as a harmless no-op but keeps its place/gate).
+			const stages = funnelStages.filter((s) => s.check !== 'speed' || speedEnabled);
+			await api.putSettings({
+				'funnel.stages': stages,
+				'media.enabled': mediaEnabled,
+				'media.platforms': MEDIA.filter((p) => mediaTested.has(p)),
+				'media.require': MEDIA.filter((p) => mediaRequire.has(p)),
+				'iprisk.enabled': ipRiskEnabled,
+				'iprisk.url': ipRiskUrl.trim(),
+				'dnsleak.enabled': dnsLeakEnabled,
+				'speed.download_url': speed.download_url.trim(),
+				'speed.upload_url': speed.upload_url.trim(),
+				'speed.streams': Number(speed.streams),
+				'speed.download_mb': Number(speed.download_mb),
+				'speed.timeout_ms': Number(speed.timeout_ms),
+				'speed.adaptive': speed.adaptive
+			});
+			flash('Filters saved');
+		} catch (e) {
+			error = e.message;
+		} finally {
+			savingFilters = false;
+		}
+	}
+
+	async function saveApproval() {
 		error = '';
 		try {
-			await api.setFunnel(funnelStages);
-			flash('Funnel saved');
+			await api.putSettings({
+				'approval.max_latency_ms': Number(approval.max_latency_ms),
+				'approval.min_dl_mbps': Number(approval.min_dl_mbps),
+				'approval.required_workers': Number(approval.required_workers),
+				'approval.allow_partial': approval.allow_partial
+			});
+			flash('Approval saved');
 		} catch (e) {
 			error = e.message;
 		}
@@ -229,23 +292,6 @@
 		}
 	}
 
-	async function saveSpeed() {
-		error = '';
-		try {
-			await api.putSettings({
-				'speed.download_url': speed.download_url.trim(),
-				'speed.upload_url': speed.upload_url.trim(),
-				'speed.streams': Number(speed.streams),
-				'speed.download_mb': Number(speed.download_mb),
-				'speed.timeout_ms': Number(speed.timeout_ms),
-				'speed.adaptive': speed.adaptive
-			});
-			flash('Speed settings saved');
-		} catch (e) {
-			error = e.message;
-		}
-	}
-
 	async function testNotify() {
 		error = '';
 		notifyBusy = true;
@@ -265,6 +311,13 @@
 		const next = new Set(set);
 		next.has(value) ? next.delete(value) : next.add(value);
 		return next;
+	}
+
+	// protoExcluded reports whether a protocol is turned off fleet-wide
+	// (protocols.enabled is set and does not list it), so the per-worker pickers
+	// show it disabled.
+	function protoExcluded(p) {
+		return globalEnabled !== null && !globalEnabled.has(p);
 	}
 
 	// normalizeProtocols treats "all selected" or "none" as no restriction (empty).
@@ -304,16 +357,6 @@
 		}
 	}
 
-	async function saveGlobalProtocols() {
-		error = '';
-		try {
-			await api.putSettings({ 'protocols.enabled': PROTOCOLS.filter((p) => globalProtocols.has(p)) });
-			flash('Enabled protocols saved');
-		} catch (e) {
-			error = e.message;
-		}
-	}
-
 	async function revokeToken(tok) {
 		error = '';
 		if (!confirm(`Revoke the token for "${tok.name}"? That worker can no longer connect.`)) return;
@@ -336,15 +379,27 @@
 		setTimeout(() => (notice = ''), 2500);
 	}
 
-	async function addSource() {
+	async function importSources() {
 		error = '';
+		const text = newSourcesText.trim();
+		if (!text) return;
+		importing = true;
 		try {
-			await api.upsertSource(newSource.kind, newSource.location.trim());
-			newSource.location = '';
+			const r = await api.importSources(text);
+			newSourcesText = '';
 			await load();
-			flash('Source saved');
+			const parts = [];
+			if (r.subscription) parts.push(`${r.subscription} subscription`);
+			if (r.inline) parts.push(`${r.inline} inline`);
+			if (r.file) parts.push(`${r.file} file`);
+			let msg = `Added ${r.added} source${r.added === 1 ? '' : 's'}`;
+			if (parts.length) msg += ` (${parts.join(', ')})`;
+			if (r.skipped && r.skipped.length) msg += `, skipped ${r.skipped.length}`;
+			flash(msg);
 		} catch (e) {
 			error = e.message;
+		} finally {
+			importing = false;
 		}
 	}
 
@@ -356,6 +411,14 @@
 		} catch (e) {
 			error = e.message;
 		}
+	}
+
+	// sourceKindLabel gives a friendly name for a source kind.
+	function sourceKindLabel(kind) {
+		if (kind === 'subscription_url') return 'subscription';
+		if (kind === 'raw_inline') return 'inline config';
+		if (kind === 'raw_file') return 'file';
+		return kind;
 	}
 
 	async function saveSetting(key) {
@@ -408,9 +471,9 @@
 	<div class="card-body">
 		<h2 class="card-title text-lg">
 			Actions
-			<Help tip="Trigger a coordinator job now instead of waiting for the schedule. Refresh sources re-ingests + dispatches a cycle; Publish re-evaluates the approval gate against history and pushes (no retest)." />
+			<Help tip="Trigger a coordinator job now instead of waiting for the schedule. Refresh sources re-ingests and dispatches a cycle; Publish re-evaluates the approval gate against history and pushes (no retest)." />
 		</h2>
-		<p class="text-sm text-base-content/60">Out-of-band triggers handled by the coordinator's scheduler.</p>
+		<p class="text-sm text-base-content/60">Out-of-band triggers handled by the coordinator scheduler.</p>
 		<div class="flex flex-wrap gap-2 mt-2">
 			{#each actions as a}
 				<button class="btn btn-outline btn-sm" onclick={() => runAction(a.name)} disabled={busyAction === a.name}>
@@ -426,15 +489,19 @@
 	<div class="card-body">
 		<h2 class="card-title text-lg">Workers</h2>
 		<p class="text-sm text-base-content/60">
-			Each worker authenticates with its own token. The name you choose is the worker's identity in
-			the fleet. The secret is shown once — copy it into the worker's <span class="mono">WORKER_TOKEN</span>.
+			Each worker authenticates with its own token. The name you choose is the worker identity in the
+			fleet. The secret is shown once, so copy it into the worker's <span class="mono">WORKER_TOKEN</span>.
 		</p>
 
 		{#if freshToken}
 			<div class="alert alert-success flex-col items-start gap-2 mt-2">
-				<span class="font-medium">Token for "{freshToken.name}" created — copy it now, it won't be shown again:</span>
+				<span class="font-medium">Token for "{freshToken.name}" created. Copy it now, it will not be shown again:</span>
 				<div class="join w-full">
-					<input class="input input-bordered input-sm join-item w-full mono" readonly value={freshToken.token} />
+					<input
+						class="input input-bordered input-sm join-item w-full mono bg-base-100 text-base-content"
+						readonly
+						value={freshToken.token}
+					/>
 					<button class="btn btn-sm join-item" onclick={() => copy(freshToken.token)}>Copy</button>
 					<button class="btn btn-sm join-item" onclick={() => (freshToken = null)}>Dismiss</button>
 				</div>
@@ -454,11 +521,15 @@
 								{#if editingToken === tok.id}
 									<div class="flex flex-wrap gap-x-3 gap-y-1 max-w-md">
 										{#each PROTOCOLS as p}
-											<label class="label cursor-pointer gap-1 py-0">
+											<label
+												class="label gap-1 py-0 {protoExcluded(p) ? 'tooltip cursor-not-allowed opacity-40' : 'cursor-pointer'}"
+												data-tip={protoExcluded(p) ? 'Excluded fleet-wide by the global protocol setting' : null}
+											>
 												<input
 													type="checkbox"
 													class="checkbox checkbox-xs"
 													checked={editProtocols.has(p)}
+													disabled={protoExcluded(p)}
 													onchange={() => (editProtocols = toggleIn(editProtocols, p))}
 												/>
 												<span class="text-xs mono">{p}</span>
@@ -518,48 +589,92 @@
 				</label>
 				<button class="btn btn-primary btn-sm" type="submit">Create token</button>
 			</div>
-			<div class="mt-2">
-				<span class="label-text">Allowed protocols <span class="text-base-content/50">(none selected = all)</span></span>
-				<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
-					{#each PROTOCOLS as p}
-						<label class="label cursor-pointer gap-1 py-0">
-							<input
-								type="checkbox"
-								class="checkbox checkbox-xs"
-								checked={newTokenProtocols.has(p)}
-								onchange={() => (newTokenProtocols = toggleIn(newTokenProtocols, p))}
-							/>
-							<span class="text-xs mono">{p}</span>
-						</label>
-					{/each}
+			<details class="mt-2">
+				<summary class="cursor-pointer text-sm text-base-content/70 select-none">Advanced: allowed protocols</summary>
+				<div class="mt-2 pl-1">
+					<span class="label-text">Allowed protocols <span class="text-base-content/50">(none selected = all)</span></span>
+					<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+						{#each PROTOCOLS as p}
+							<label
+								class="label gap-1 py-0 {protoExcluded(p) ? 'tooltip cursor-not-allowed opacity-40' : 'cursor-pointer'}"
+								data-tip={protoExcluded(p) ? 'Excluded fleet-wide by the global protocol setting' : null}
+							>
+								<input
+									type="checkbox"
+									class="checkbox checkbox-xs"
+									checked={newTokenProtocols.has(p)}
+									disabled={protoExcluded(p)}
+									onchange={() => (newTokenProtocols = toggleIn(newTokenProtocols, p))}
+								/>
+								<span class="text-xs mono">{p}</span>
+							</label>
+						{/each}
+					</div>
 				</div>
-			</div>
+			</details>
 		</form>
 	</div>
 </div>
 
 <div class="card bg-base-100 shadow mb-6">
 	<div class="card-body">
-		<h2 class="card-title text-lg">Protocols (global)</h2>
+		<h2 class="card-title text-lg">
+			Sources
+			<Help tip="Subscription URLs, raw share links or local file paths the coordinator fetches, parses and tests every cycle. Disabled sources are skipped." />
+		</h2>
 		<p class="text-sm text-base-content/60">
-			Unchecking a protocol excludes it from every check, fleet-wide. Per-worker limits above are
-			applied on top of this.
+			Paste anything, one entry per line. Each line is classified automatically: a share link
+			(vless, vmess, trojan, ss, hysteria2, tuic and so on) is stored as an inline config, an http or
+			https link as a subscription, and anything else as a local file path.
 		</p>
-		<div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-			{#each PROTOCOLS as p}
-				<label class="label cursor-pointer gap-1 py-0">
-					<input
-						type="checkbox"
-						class="checkbox checkbox-sm"
-						checked={globalProtocols.has(p)}
-						onchange={() => (globalProtocols = toggleIn(globalProtocols, p))}
-					/>
-					<span class="text-sm mono">{p}</span>
-				</label>
-			{/each}
-		</div>
-		<div class="mt-3">
-			<button class="btn btn-primary btn-sm" onclick={saveGlobalProtocols}>Save protocols</button>
+
+		<form
+			class="mt-2"
+			onsubmit={(e) => {
+				e.preventDefault();
+				importSources();
+			}}
+		>
+			<textarea
+				class="textarea textarea-bordered mono text-xs w-full h-28"
+				bind:value={newSourcesText}
+				placeholder={'https://example.com/sub\nvless://uuid@host:443?...#node\n/path/to/links.txt'}
+			></textarea>
+			<div class="mt-2">
+				<button class="btn btn-primary btn-sm" type="submit" disabled={importing}>
+					{#if importing}<span class="loading loading-spinner loading-xs"></span>{/if}
+					Add sources
+				</button>
+			</div>
+		</form>
+
+		<div class="overflow-x-auto mt-4">
+			<table class="table table-sm">
+				<thead>
+					<tr><th>Kind</th><th>Location</th><th>Last fetch</th><th>Enabled</th><th></th></tr>
+				</thead>
+				<tbody>
+					{#each sources as src}
+						<tr class="hover">
+							<td><span class="badge badge-ghost badge-sm">{sourceKindLabel(src.kind)}</span></td>
+							<td class="mono text-xs text-base-content/70 break-all max-w-md">{src.location}</td>
+							<td class="text-base-content/60">{src.last_fetch ? ago(src.last_fetch) : 'never'}</td>
+							<td>
+								<span class="badge badge-sm {src.enabled ? 'badge-success' : 'badge-ghost'}">
+									{src.enabled ? 'yes' : 'no'}
+								</span>
+							</td>
+							<td>
+								<button class="btn btn-xs" onclick={() => toggle(src)}>
+									{src.enabled ? 'Disable' : 'Enable'}
+								</button>
+							</td>
+						</tr>
+					{:else}
+						<tr><td colspan="5" class="text-base-content/60 text-center py-4">No sources yet.</td></tr>
+					{/each}
+				</tbody>
+			</table>
 		</div>
 	</div>
 </div>
@@ -567,113 +682,185 @@
 <div class="card bg-base-100 shadow mb-6">
 	<div class="card-body">
 		<h2 class="card-title text-lg">
-			Media unlock
-			<Help tip="Probe whether streaming/AI services work through each node. Results show as badges per node and as tags in the public name (GPT⁺, NF, …)." />
-		</h2>
-		<label class="label cursor-pointer justify-start gap-2 w-fit">
-			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={mediaEnabled} />
-			<span class="label-text">Enable media-unlock checks</span>
-		</label>
-
-		<div class="mt-2">
-			<span class="label-text">Tested platforms <span class="text-base-content/50">(probed and shown per node)</span></span>
-			<div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-				{#each MEDIA as p}
-					<label class="label cursor-pointer gap-1 py-0">
-						<input
-							type="checkbox"
-							class="checkbox checkbox-sm"
-							checked={mediaTested.has(p)}
-							onchange={() => (mediaTested = toggleIn(mediaTested, p))}
-						/>
-						<span class="text-sm mono">{p}</span>
-					</label>
-				{/each}
-			</div>
-		</div>
-
-		<div class="mt-3">
-			<span class="label-text">
-				Required to unlock <span class="text-base-content/50">(node must unlock all of these, or its speed test is skipped — saves time)</span>
-			</span>
-			<div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-				{#each MEDIA as p}
-					<label class="label cursor-pointer gap-1 py-0">
-						<input
-							type="checkbox"
-							class="checkbox checkbox-sm"
-							checked={mediaRequire.has(p)}
-							onchange={() => (mediaRequire = toggleIn(mediaRequire, p))}
-						/>
-						<span class="text-sm mono">{p}</span>
-					</label>
-				{/each}
-			</div>
-		</div>
-
-		<div class="divider my-2"></div>
-
-		<label class="label cursor-pointer justify-start gap-2 w-fit">
-			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={ipRiskEnabled} />
-			<span class="label-text">Enable IP-risk scoring</span>
-			<span class="text-base-content/50 text-sm">(tags each node's exit IP with a 0-100 risk score)</span>
-		</label>
-
-		<label class="label cursor-pointer justify-start gap-2 w-fit">
-			<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={dnsLeakEnabled} />
-			<span class="label-text">Enable DNS-leak check</span>
-			<span class="text-base-content/50 text-sm">(flags nodes whose DNS resolver country differs from the exit)</span>
-		</label>
-
-		<div class="mt-3">
-			<button class="btn btn-primary btn-sm" onclick={saveMedia}>Save media settings</button>
-		</div>
-	</div>
-</div>
-
-<div class="card bg-base-100 shadow mb-6">
-	<div class="card-body">
-		<h2 class="card-title text-lg">
-			Test funnel
-			<Help
-				tip="The order tests run for each node, after the latency gate. Reorder with ↑/↓; a gated stage that doesn't pass skips the remaining stages for that node (saves time / drops unwanted nodes)."
-			/>
+			Filters
+			<Help tip="The checks each node runs after connectivity, in order. Enable a filter, open its Advanced panel for options, and turn on 'Drop if it fails' to discard nodes that do not pass (which also skips the rest of the funnel for that node)." />
 		</h2>
 		<p class="text-sm text-base-content/60">
-			Latency always runs first. A <span class="font-medium">gated</span> stage that doesn't pass skips
-			the rest of the funnel for that node.
+			Connectivity always runs first: a node that cannot connect is dropped. The filters below run in
+			the order shown. Turn on "Drop if it fails" to discard a node that does not pass.
 		</p>
 
 		<ul class="mt-3 flex flex-col gap-2">
 			<li class="flex items-center gap-3 rounded-lg bg-base-200 px-3 py-2 opacity-70">
 				<span class="badge badge-ghost badge-sm w-6 justify-center">1</span>
 				<div class="flex-1">
-					<span class="font-medium">{STAGE_META.latency.label}</span>
-					<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">{STAGE_META.latency.desc}</span>
+					<span class="font-medium">Connectivity</span>
+					<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">Always runs first; a node that cannot connect is dropped.</span>
 				</div>
-				<span class="badge badge-sm badge-warning">always gates</span>
+				<span class="badge badge-sm badge-warning">always on</span>
 			</li>
-			{#each funnelStages as st, i}
-				<li class="flex items-center gap-3 rounded-lg bg-base-200 px-3 py-2">
-					<span class="badge badge-ghost badge-sm w-6 justify-center">{i + 2}</span>
-					<div class="flex-1">
-						<span class="font-medium">{STAGE_META[st.check]?.label || st.check}</span>
-						<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">{STAGE_META[st.check]?.desc || ''}</span>
+
+			{#each funnelStages as st, i (st.check)}
+				<li class="rounded-lg bg-base-200 px-3 py-2">
+					<div class="flex items-center gap-3 flex-wrap">
+						<span class="badge badge-ghost badge-sm w-6 justify-center">{i + 2}</span>
+						<label class="cursor-pointer">
+							<input
+								type="checkbox"
+								class="toggle toggle-sm toggle-primary align-middle"
+								checked={filterEnabled(st.check)}
+								onchange={(e) => setFilterEnabled(st.check, e.currentTarget.checked)}
+							/>
+						</label>
+						<div class="flex-1 min-w-40">
+							<span class={filterEnabled(st.check) ? 'font-medium' : 'font-medium opacity-50'}>
+								{FILTER_META[st.check]?.label || st.check}
+							</span>
+							<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">{FILTER_META[st.check]?.desc || ''}</span>
+						</div>
+						<label class="label cursor-pointer gap-2 py-0" class:opacity-40={!filterEnabled(st.check)}>
+							<span class="label-text text-sm">Drop if it fails</span>
+							<input type="checkbox" class="toggle toggle-xs toggle-primary" checked={st.gate} onchange={() => toggleGate(i)} disabled={!filterEnabled(st.check)} />
+						</label>
+						<div class="join">
+							<button class="btn btn-xs join-item" onclick={() => moveStage(i, -1)} disabled={i === 0} aria-label="move up" title="Move up">
+								<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10l4-4 4 4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+							</button>
+							<button class="btn btn-xs join-item" onclick={() => moveStage(i, 1)} disabled={i === funnelStages.length - 1} aria-label="move down" title="Move down">
+								<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+							</button>
+						</div>
+						<button class="btn btn-xs btn-ghost" onclick={() => toggleAdvanced(st.check)}>
+							{openFilter === st.check ? 'Hide' : 'Advanced'}
+						</button>
 					</div>
-					<label class="label cursor-pointer gap-2 py-0">
-						<span class="label-text text-sm">gate</span>
-						<input type="checkbox" class="toggle toggle-xs toggle-primary" checked={st.gate} onchange={() => toggleGate(i)} />
-					</label>
-					<div class="join">
-						<button class="btn btn-xs join-item" onclick={() => moveStage(i, -1)} disabled={i === 0} aria-label="move up">↑</button>
-						<button class="btn btn-xs join-item" onclick={() => moveStage(i, 1)} disabled={i === funnelStages.length - 1} aria-label="move down">↓</button>
-					</div>
+
+					{#if openFilter === st.check}
+						<div class="mt-3 pt-3 border-t border-base-300 pl-1">
+							{#if st.check === 'media'}
+								<span class="label-text">Tested platforms <span class="text-base-content/50">(probed and shown per node)</span></span>
+								<div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+									{#each MEDIA as p}
+										<label class="label cursor-pointer gap-1 py-0">
+											<input
+												type="checkbox"
+												class="checkbox checkbox-sm"
+												checked={mediaTested.has(p)}
+												onchange={() => (mediaTested = toggleIn(mediaTested, p))}
+											/>
+											<span class="text-sm mono">{p}</span>
+										</label>
+									{/each}
+								</div>
+								<div class="mt-3">
+									<span class="label-text">
+										Required to unlock <span class="text-base-content/50">(node must unlock all of these, otherwise its speed test is skipped to save time)</span>
+									</span>
+									<div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+										{#each MEDIA as p}
+											<label class="label cursor-pointer gap-1 py-0">
+												<input
+													type="checkbox"
+													class="checkbox checkbox-sm"
+													checked={mediaRequire.has(p)}
+													onchange={() => (mediaRequire = toggleIn(mediaRequire, p))}
+												/>
+												<span class="text-sm mono">{p}</span>
+											</label>
+										{/each}
+									</div>
+								</div>
+							{:else if st.check === 'ip_risk'}
+								<label class="form-control">
+									<span class="label-text mb-1">Provider URL <span class="text-base-content/50">(empty uses the default ip-api.com)</span></span>
+									<input class="input input-bordered input-sm mono text-xs" bind:value={ipRiskUrl} placeholder="https://ip-api.com/json" />
+								</label>
+							{:else if st.check === 'speed'}
+								<div class="grid gap-3 sm:grid-cols-2">
+									<label class="form-control">
+										<span class="label-text mb-1">Download URL <span class="text-base-content/50">(__down-style; empty = Cloudflare)</span></span>
+										<input class="input input-bordered input-sm mono text-xs" bind:value={speed.download_url} placeholder="https://speed.example.com/__down" />
+									</label>
+									<label class="form-control">
+										<span class="label-text mb-1">Upload URL <span class="text-base-content/50">(__up-style; empty disables upload)</span></span>
+										<input class="input input-bordered input-sm mono text-xs" bind:value={speed.upload_url} placeholder="https://speed.example.com/__up" />
+									</label>
+									<label class="form-control">
+										<span class="label-text mb-1">Streams</span>
+										<input type="number" min="1" class="input input-bordered input-sm w-28" bind:value={speed.streams} />
+									</label>
+									<label class="form-control">
+										<span class="label-text mb-1">Download MB <span class="text-base-content/50">(0 = default)</span></span>
+										<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={speed.download_mb} />
+									</label>
+									<label class="form-control">
+										<span class="label-text mb-1">Timeout (ms)</span>
+										<input type="number" min="1000" step="1000" class="input input-bordered input-sm w-28" bind:value={speed.timeout_ms} />
+									</label>
+									<label class="label cursor-pointer justify-start gap-2 self-end">
+										<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={speed.adaptive} />
+										<span class="label-text">Adaptive (stop early)</span>
+									</label>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</li>
 			{/each}
+
+			<li class="rounded-lg bg-base-200 px-3 py-2">
+				<div class="flex items-center gap-3 flex-wrap">
+					<span class="badge badge-ghost badge-sm w-6 justify-center">+</span>
+					<label class="cursor-pointer">
+						<input type="checkbox" class="toggle toggle-sm toggle-primary align-middle" bind:checked={dnsLeakEnabled} />
+					</label>
+					<div class="flex-1 min-w-40">
+						<span class={dnsLeakEnabled ? 'font-medium' : 'font-medium opacity-50'}>DNS leak</span>
+						<span class="text-xs text-base-content/50 ml-2 hidden sm:inline">Flags nodes whose DNS resolver country differs from the exit (informational, never drops).</span>
+					</div>
+					<span class="badge badge-sm badge-ghost">informational</span>
+				</div>
+			</li>
 		</ul>
 
 		<div class="mt-3">
-			<button class="btn btn-primary btn-sm" onclick={saveFunnel}>Save funnel</button>
+			<button class="btn btn-primary btn-sm" onclick={saveFilters} disabled={savingFilters}>
+				{#if savingFilters}<span class="loading loading-spinner loading-xs"></span>{/if}
+				Save filters
+			</button>
+		</div>
+
+		<div class="divider my-2">Approval</div>
+		<p class="text-sm text-base-content/60">
+			The thresholds a measured node must clear to be published, and how many distinct workers must
+			agree.
+		</p>
+		<div class="grid gap-3 sm:grid-cols-2 mt-2">
+			<label class="form-control">
+				<span class="label-text mb-1">Max latency (ms)</span>
+				<input type="number" min="1" class="input input-bordered input-sm w-32" bind:value={approval.max_latency_ms} />
+			</label>
+			<label class="form-control">
+				<span class="label-text mb-1">Min download (MB/s)</span>
+				<input type="number" min="0" step="0.1" class="input input-bordered input-sm w-32" bind:value={approval.min_dl_mbps} />
+			</label>
+			<label class="form-control">
+				<span class="label-text mb-1">
+					Min confirming workers
+					<Help tip="Distinct workers that must each measure a node within the thresholds before it is published." />
+				</span>
+				<input type="number" min="1" class="input input-bordered input-sm w-32" bind:value={approval.required_workers} />
+			</label>
+			<label class="label cursor-pointer justify-start gap-2 self-end">
+				<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={approval.allow_partial} />
+				<span class="label-text">
+					Bypass the minimum on a small fleet
+					<Help tip="When fewer workers are alive than the minimum, publish with as few as one confirmation instead of holding the node back." />
+				</span>
+			</label>
+		</div>
+		<div class="mt-3">
+			<button class="btn btn-primary btn-sm" onclick={saveApproval}>Save approval</button>
 		</div>
 	</div>
 </div>
@@ -682,20 +869,20 @@
 	<div class="card-body">
 		<h2 class="card-title text-lg">
 			Output filters
-			<Help tip="Shape the published list at publish time (no retest). Regex match the full node name (flag | brand | seq|speed|tags). Applied to every output format." />
+			<Help tip="Shape the published list at publish time (no retest). Regex match the full node name (flag, brand, seq, speed, tags). Applied to every output format." />
 		</h2>
 		<div class="grid gap-3 sm:grid-cols-2">
 			<label class="form-control">
 				<span class="label-text mb-1">Keep names matching <span class="text-base-content/50">(regex; empty = all)</span></span>
-				<input class="input input-bordered input-sm mono text-xs" bind:value={output.name_include} placeholder="🇫🇷|🇩🇪" />
+				<input class="input input-bordered input-sm mono text-xs" bind:value={output.name_include} placeholder="FR|DE" />
 			</label>
 			<label class="form-control">
 				<span class="label-text mb-1">Drop names matching <span class="text-base-content/50">(regex)</span></span>
-				<input class="input input-bordered input-sm mono text-xs" bind:value={output.name_exclude} placeholder="OT|❓" />
+				<input class="input input-bordered input-sm mono text-xs" bind:value={output.name_exclude} placeholder="OT" />
 			</label>
 			<label class="form-control">
 				<span class="label-text mb-1">Node prefix <span class="text-base-content/50">(prepended to each name)</span></span>
-				<input class="input input-bordered input-sm mono text-xs" bind:value={output.node_prefix} placeholder="🔥 " />
+				<input class="input input-bordered input-sm mono text-xs" bind:value={output.node_prefix} />
 			</label>
 			<label class="form-control">
 				<span class="label-text mb-1">Success limit <span class="text-base-content/50">(0 = unlimited)</span></span>
@@ -725,47 +912,9 @@
 <div class="card bg-base-100 shadow mb-6">
 	<div class="card-body">
 		<h2 class="card-title text-lg">
-			Speed test
-			<Help tip="Endpoints and sizing for the download/upload speed leg, pushed to every worker. Leave the URLs empty to use Cloudflare; set them to a self-hosted speed-test for control/accuracy." />
-		</h2>
-		<div class="grid gap-3 sm:grid-cols-2">
-			<label class="form-control">
-				<span class="label-text mb-1">Download URL <span class="text-base-content/50">(__down-style; empty = Cloudflare)</span></span>
-				<input class="input input-bordered input-sm mono text-xs" bind:value={speed.download_url} placeholder="https://speed.example.com/__down" />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Upload URL <span class="text-base-content/50">(__up-style; empty disables upload)</span></span>
-				<input class="input input-bordered input-sm mono text-xs" bind:value={speed.upload_url} placeholder="https://speed.example.com/__up" />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Streams</span>
-				<input type="number" min="1" class="input input-bordered input-sm w-28" bind:value={speed.streams} />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Download MB <span class="text-base-content/50">(0 = default)</span></span>
-				<input type="number" min="0" class="input input-bordered input-sm w-28" bind:value={speed.download_mb} />
-			</label>
-			<label class="form-control">
-				<span class="label-text mb-1">Timeout (ms)</span>
-				<input type="number" min="1000" step="1000" class="input input-bordered input-sm w-28" bind:value={speed.timeout_ms} />
-			</label>
-			<label class="label cursor-pointer justify-start gap-2 self-end">
-				<input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={speed.adaptive} />
-				<span class="label-text">Adaptive (stop early)</span>
-			</label>
-		</div>
-		<div class="mt-3">
-			<button class="btn btn-primary btn-sm" onclick={saveSpeed}>Save speed settings</button>
-		</div>
-	</div>
-</div>
-
-<div class="card bg-base-100 shadow mb-6">
-	<div class="card-body">
-		<h2 class="card-title text-lg">
 			Notifications
 			<Help
-				tip="Send a per-country summary after each published cycle via shoutrrr. One service URL per line: telegram://token@telegram?chats=@channel, discord://token@id, slack://…, or generic://host/path for a webhook. Applied on the next cycle; use 'Send test' to validate now."
+				tip="Send a per-country summary after each published cycle via shoutrrr. One service URL per line: telegram://token@telegram?chats=@channel, discord://token@id, slack://, or generic://host/path for a webhook. Applied on the next cycle; use 'Send test' to validate now."
 			/>
 		</h2>
 		<label class="label cursor-pointer justify-start gap-2 w-fit">
@@ -779,7 +928,7 @@
 			<textarea
 				class="textarea textarea-bordered mono text-xs h-28"
 				bind:value={notifyUrls}
-				placeholder="telegram://token@telegram?chats=@mychannel&#10;discord://token@id&#10;generic://example.com/webhook"
+				placeholder={'telegram://token@telegram?chats=@mychannel\ndiscord://token@id\ngeneric://example.com/webhook'}
 			></textarea>
 		</label>
 		<div class="mt-3 flex gap-2">
@@ -792,94 +941,37 @@
 	</div>
 </div>
 
-<div class="card bg-base-100 shadow mb-6">
-	<div class="card-body">
-		<h2 class="card-title text-lg">
-			Sources
-			<Help tip="Subscription URLs or local files the coordinator fetches, parses and tests every cycle. Disabled sources are skipped." />
-		</h2>
-		<div class="overflow-x-auto">
-			<table class="table table-sm">
-				<thead>
-					<tr><th>Kind</th><th>Location</th><th>Last fetch</th><th>Enabled</th><th></th></tr>
-				</thead>
-				<tbody>
-					{#each sources as src}
-						<tr class="hover">
-							<td><span class="badge badge-ghost badge-sm">{src.kind}</span></td>
-							<td class="mono text-xs text-base-content/70 break-all max-w-md">{src.location}</td>
-							<td class="text-base-content/60">{src.last_fetch ? ago(src.last_fetch) : '—'}</td>
-							<td>
-								<span class="badge badge-sm {src.enabled ? 'badge-success' : 'badge-ghost'}">
-									{src.enabled ? 'yes' : 'no'}
-								</span>
-							</td>
-							<td>
-								<button class="btn btn-xs" onclick={() => toggle(src)}>
-									{src.enabled ? 'Disable' : 'Enable'}
-								</button>
-							</td>
-						</tr>
-					{:else}
-						<tr><td colspan="5" class="text-base-content/60 text-center py-4">No sources yet.</td></tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-
-		<form
-			class="flex flex-wrap items-end gap-3 mt-4 pt-4 border-t border-base-300"
-			onsubmit={(e) => {
-				e.preventDefault();
-				addSource();
-			}}
-		>
-			<label class="form-control">
-				<span class="label-text mb-1">Kind</span>
-				<select class="select select-bordered select-sm" bind:value={newSource.kind}>
-					<option value="subscription_url">subscription_url</option>
-					<option value="raw_file">raw_file</option>
-				</select>
-			</label>
-			<label class="form-control flex-1 min-w-60">
-				<span class="label-text mb-1">Location</span>
-				<input
-					class="input input-bordered input-sm w-full"
-					bind:value={newSource.location}
-					placeholder="https://… or /path/to/file"
-				/>
-			</label>
-			<button class="btn btn-primary btn-sm" type="submit">Add / update</button>
-		</form>
-	</div>
-</div>
-
 <div class="card bg-base-100 shadow">
 	<div class="card-body">
 		<h2 class="card-title text-lg">
-			Settings
-			<Help tip="Raw key/value config (JSON). Most have a typed editor in the cards above; hover the ⓘ on a key for what it does." />
+			Advanced
+			<Help tip="Raw key/value config (JSON). Most keys have a typed editor in the cards above; hover the info icon on a key for what it does." />
 		</h2>
-		<div class="overflow-x-auto">
-			<table class="table table-sm">
-				<thead>
-					<tr><th class="w-64">Key</th><th>Value (JSON)</th><th></th></tr>
-				</thead>
-				<tbody>
-					{#each Object.keys(settings).sort() as key}
-						<tr class="hover">
-							<td class="mono text-sm">
-								{key}{#if SETTING_HELP[key]}<Help tip={SETTING_HELP[key]} pos="right" />{/if}
-							</td>
-							<td><input class="input input-bordered input-sm w-full mono" bind:value={settings[key]} /></td>
-							<td><button class="btn btn-xs" onclick={() => saveSetting(key)}>Save</button></td>
-						</tr>
-					{:else}
-						<tr><td colspan="3" class="text-base-content/60 text-center py-4">No settings.</td></tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+		<button class="btn btn-sm btn-ghost w-fit" onclick={() => (showRaw = !showRaw)}>
+			{showRaw ? 'Hide raw settings' : 'Show raw settings'}
+		</button>
+		{#if showRaw}
+			<div class="overflow-x-auto mt-2">
+				<table class="table table-sm">
+					<thead>
+						<tr><th class="w-64">Key</th><th>Value (JSON)</th><th></th></tr>
+					</thead>
+					<tbody>
+						{#each Object.keys(settings).sort() as key}
+							<tr class="hover">
+								<td class="mono text-sm">
+									{key}{#if SETTING_HELP[key]}<Help tip={SETTING_HELP[key]} pos="right" />{/if}
+								</td>
+								<td><input class="input input-bordered input-sm w-full mono" bind:value={settings[key]} /></td>
+								<td><button class="btn btn-xs" onclick={() => saveSetting(key)}>Save</button></td>
+							</tr>
+						{:else}
+							<tr><td colspan="3" class="text-base-content/60 text-center py-4">No settings.</td></tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 	</div>
 </div>
 

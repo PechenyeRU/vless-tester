@@ -35,6 +35,12 @@ type fakeAdminStore struct {
 	sources          []model.Source
 	settings         map[string]json.RawMessage
 	upserted         []model.Source
+	upsertedServer   model.Server
+	updatedServer    model.Server
+	deletedServer    int64
+	updateErr        error
+	updateOK         bool
+	deleteOK         bool
 	toggled          map[int64]bool
 	setSettings      map[string]json.RawMessage
 	workerTokens     []model.WorkerToken
@@ -50,6 +56,8 @@ func newAdminFake() *fakeAdminStore {
 		settings:    map[string]json.RawMessage{},
 		toggled:     map[int64]bool{},
 		setSettings: map[string]json.RawMessage{},
+		updateOK:    true,
+		deleteOK:    true,
 	}
 }
 
@@ -63,6 +71,24 @@ func (f *fakeAdminStore) GetServer(_ context.Context, id int64) (model.Server, e
 	}
 	f.server.ID = id
 	return f.server, nil
+}
+func (f *fakeAdminStore) UpsertServer(_ context.Context, srv model.Server) (int64, error) {
+	f.upsertedServer = srv
+	return 1, nil
+}
+func (f *fakeAdminStore) UpdateServer(_ context.Context, id int64, srv model.Server) (bool, error) {
+	f.updatedServer = srv
+	if f.updateErr != nil {
+		return false, f.updateErr
+	}
+	return f.updateOK, nil
+}
+func (f *fakeAdminStore) DeleteServer(_ context.Context, id int64) (bool, error) {
+	f.deletedServer = id
+	return f.deleteOK, nil
+}
+func (f *fakeAdminStore) SetServerGeo(_ context.Context, id int64, country, seqName string) error {
+	return nil
 }
 func (f *fakeAdminStore) ServerHistory(_ context.Context, _ int64, _ int) ([]store.RunRecord, error) {
 	return f.history, nil
@@ -430,6 +456,124 @@ func TestAdminPutSourceRejectsBadKind(t *testing.T) {
 	s := &AdminServer{Store: newAdminFake()}
 	if rec := do(t, s, http.MethodPut, "/api/v1/sources", "", `{"kind":"bogus","location":"x"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestAdminImportSourcesClassifies(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	body := `{"text":"https://x/sub\nvless://uuid@host:443?security=tls#node\n/path/to/links.txt\n# a comment\n\n"}`
+	rec := do(t, s, http.MethodPost, "/api/v1/sources/import", "", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body)
+	}
+	var resp importSourcesResp
+	mustJSON(t, rec, &resp)
+	if resp.Added != 3 || resp.Subscription != 1 || resp.Inline != 1 || resp.File != 1 {
+		t.Fatalf("unexpected counts: %+v", resp)
+	}
+	kinds := map[model.SourceKind]string{}
+	for _, u := range f.upserted {
+		kinds[u.Kind] = u.Location
+	}
+	if kinds[model.SourceSubscriptionURL] != "https://x/sub" {
+		t.Fatalf("subscription not classified: %+v", f.upserted)
+	}
+	if kinds[model.SourceRawInline] != "vless://uuid@host:443?security=tls#node" {
+		t.Fatalf("inline config not classified: %+v", f.upserted)
+	}
+	if kinds[model.SourceRawFile] != "/path/to/links.txt" {
+		t.Fatalf("file path not classified: %+v", f.upserted)
+	}
+}
+
+func TestClassifySourceLine(t *testing.T) {
+	cases := []struct {
+		in   string
+		want model.SourceKind
+	}{
+		{"", ""},
+		{"   ", ""},
+		{"# comment", ""},
+		{"vless://uuid@host:443?security=tls#n", model.SourceRawInline},
+		{"https://example.com/sub", model.SourceSubscriptionURL},
+		{"HTTP://Example.com/sub", model.SourceSubscriptionURL},
+		{"/var/lib/links.txt", model.SourceRawFile},
+		{"links.txt", model.SourceRawFile},
+	}
+	for _, c := range cases {
+		if got := classifySourceLine(c.in); got != c.want {
+			t.Fatalf("classify(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestAdminCreateServer(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPost, "/api/v1/servers", "", `{"raw_uri":"vless://uuid@host:443?security=tls#n","country":"fr"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d (%s)", rec.Code, rec.Body)
+	}
+	if f.upsertedServer.Host != "host" || f.upsertedServer.Protocol != model.ProtocolVLESS {
+		t.Fatalf("server not parsed/upserted: %+v", f.upsertedServer)
+	}
+}
+
+func TestAdminCreateServerRejectsBadConfig(t *testing.T) {
+	s := &AdminServer{Store: newAdminFake()}
+	if rec := do(t, s, http.MethodPost, "/api/v1/servers", "", `{"raw_uri":"not a link"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestAdminUpdateServer(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	rec := do(t, s, http.MethodPut, "/api/v1/servers/5", "", `{"raw_uri":"trojan://pw@host:443#n","country":"ch","seq_name":"CH1"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body)
+	}
+	if f.updatedServer.Protocol != model.ProtocolTrojan || f.updatedServer.Country != "CH" || f.updatedServer.SeqName != "CH1" {
+		t.Fatalf("update not recorded: %+v", f.updatedServer)
+	}
+}
+
+func TestAdminUpdateServerConflict(t *testing.T) {
+	f := newAdminFake()
+	f.updateErr = store.ErrServerExists
+	s := &AdminServer{Store: f}
+	if rec := do(t, s, http.MethodPut, "/api/v1/servers/5", "", `{"raw_uri":"trojan://pw@host:443#n"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("want 409, got %d", rec.Code)
+	}
+}
+
+func TestAdminUpdateServerNotFound(t *testing.T) {
+	f := newAdminFake()
+	f.updateOK = false
+	s := &AdminServer{Store: f}
+	if rec := do(t, s, http.MethodPut, "/api/v1/servers/5", "", `{"raw_uri":"trojan://pw@host:443#n"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestAdminDeleteServer(t *testing.T) {
+	f := newAdminFake()
+	s := &AdminServer{Store: f}
+	if rec := do(t, s, http.MethodDelete, "/api/v1/servers/8", "", ``); rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d", rec.Code)
+	}
+	if f.deletedServer != 8 {
+		t.Fatalf("delete not recorded: %d", f.deletedServer)
+	}
+}
+
+func TestAdminDeleteServerNotFound(t *testing.T) {
+	f := newAdminFake()
+	f.deleteOK = false
+	s := &AdminServer{Store: f}
+	if rec := do(t, s, http.MethodDelete, "/api/v1/servers/8", "", ``); rec.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", rec.Code)
 	}
 }
 

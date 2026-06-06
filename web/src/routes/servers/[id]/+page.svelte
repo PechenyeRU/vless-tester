@@ -24,7 +24,7 @@
 	onMount(load);
 </script>
 
-<a class="btn btn-ghost btn-sm mb-4" href="/servers">← Servers</a>
+<a class="btn btn-ghost btn-sm mb-4" href="/servers">Back to servers</a>
 
 {#if error}
 	<div class="alert alert-error mb-4"><span>{error}</span></div>
@@ -46,8 +46,8 @@
 						<tr><th class="w-32">ID</th><td>{s.id}</td></tr>
 						<tr><th>Protocol</th><td><span class="badge badge-ghost badge-sm">{s.protocol}</span></td></tr>
 						<tr><th>Endpoint</th><td class="mono">{s.host}:{s.port}</td></tr>
-						<tr><th>Country</th><td>{flag(s.country)} {s.country || '—'}</td></tr>
-						<tr><th>Seq name</th><td>{s.seq_name || '—'}</td></tr>
+						<tr><th>Country</th><td>{flag(s.country)} {s.country || '-'}</td></tr>
+						<tr><th>Seq name</th><td>{s.seq_name || '-'}</td></tr>
 						<tr><th>Raw URI</th><td class="mono text-xs text-base-content/60 break-all">{s.raw_uri}</td></tr>
 					</tbody>
 				</table>
@@ -91,7 +91,7 @@
 		{#if media.length}
 			<h2 class="text-lg font-semibold mb-2">
 				Media unlock
-				<Help tip="Whether each streaming/AI service works through this node (green = unlocked). The region in the detail feeds the public name tag, e.g. GPT⁺-US." />
+				<Help tip="Whether each streaming or AI service works through this node (green = unlocked). The region in the detail feeds the public name tag, e.g. GPT+ US." />
 			</h2>
 			<div class="card bg-base-100 shadow mb-6">
 				<div class="card-body flex-row flex-wrap gap-2">

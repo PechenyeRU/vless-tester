@@ -58,6 +58,9 @@ async function req(method, path, body) {
 export const api = {
 	servers: (filter) => req('GET', '/servers' + buildServerQuery(filter)),
 	server: (id) => req('GET', '/servers/' + id),
+	createServer: (body) => req('POST', '/servers', body),
+	updateServer: (id, body) => req('PUT', '/servers/' + id, body),
+	deleteServer: (id) => req('DELETE', '/servers/' + id),
 	workers: () => req('GET', '/workers'),
 	stats: () => req('GET', '/stats'),
 	progress: () => req('GET', '/progress'),
@@ -65,6 +68,7 @@ export const api = {
 	logs: (since = 0) => req('GET', '/logs?since=' + since),
 	sources: () => req('GET', '/sources'),
 	upsertSource: (kind, location) => req('PUT', '/sources', { kind, location }),
+	importSources: (text) => req('POST', '/sources/import', { text }),
 	toggleSource: (id, enabled) => req('PUT', '/sources', { id, enabled }),
 	settings: () => req('GET', '/settings'),
 	putSettings: (patch) => req('PUT', '/settings', patch),

@@ -15,9 +15,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/whitedns/vless-tester/internal/ingest"
 	"github.com/whitedns/vless-tester/internal/logbuf"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/notify"
@@ -29,6 +31,10 @@ import (
 type AdminStore interface {
 	ListServers(ctx context.Context, f store.ServerFilter) ([]store.ServerSummary, error)
 	GetServer(ctx context.Context, id int64) (model.Server, error)
+	UpsertServer(ctx context.Context, srv model.Server) (int64, error)
+	UpdateServer(ctx context.Context, id int64, srv model.Server) (bool, error)
+	DeleteServer(ctx context.Context, id int64) (bool, error)
+	SetServerGeo(ctx context.Context, id int64, country, seqName string) error
 	ServerHistory(ctx context.Context, serverID int64, limit int) ([]store.RunRecord, error)
 	ServerChecks(ctx context.Context, serverID int64) ([]model.CheckOutcome, error)
 	ListWorkers(ctx context.Context) ([]model.Worker, error)
@@ -156,7 +162,10 @@ func (s *AdminServer) logf(format string, args ...any) {
 func (s *AdminServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
+	mux.HandleFunc("POST /api/v1/servers", s.handleCreateServer)
 	mux.HandleFunc("GET /api/v1/servers/{id}", s.handleServerDetail)
+	mux.HandleFunc("PUT /api/v1/servers/{id}", s.handleUpdateServer)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}", s.handleDeleteServer)
 	mux.HandleFunc("GET /api/v1/workers", s.handleWorkers)
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
 	mux.HandleFunc("GET /api/v1/progress", s.handleProgress)
@@ -165,6 +174,7 @@ func (s *AdminServer) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/notify-test", s.handleNotifyTest)
 	mux.HandleFunc("GET /api/v1/sources", s.handleListSources)
 	mux.HandleFunc("PUT /api/v1/sources", s.handlePutSource)
+	mux.HandleFunc("POST /api/v1/sources/import", s.handleImportSources)
 	mux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
 	mux.HandleFunc("PUT /api/v1/settings", s.handlePutSettings)
 	mux.HandleFunc("POST /api/v1/actions/{name}", s.handleAction)
@@ -424,6 +434,99 @@ func (s *AdminServer) handleServerDetail(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// --- POST /servers (manual add) ---
+
+type serverWriteReq struct {
+	RawURI  string `json:"raw_uri"`
+	Country string `json:"country"`
+	SeqName string `json:"seq_name"`
+}
+
+// handleCreateServer parses a single share link and inserts it as a server, the
+// same dedup path the ingest pipeline uses (so re-adding an existing endpoint is
+// a no-op upsert). Country/seq_name overrides are applied when provided.
+func (s *AdminServer) handleCreateServer(w http.ResponseWriter, r *http.Request) {
+	var req serverWriteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	srv, err := ingest.Parse(strings.TrimSpace(req.RawURI))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "could not parse config: "+err.Error())
+		return
+	}
+	id, err := s.Store.UpsertServer(r.Context(), srv)
+	if err != nil {
+		s.logf("api: create server: %v", err)
+		writeErr(w, http.StatusInternalServerError, "create server failed")
+		return
+	}
+	if req.Country != "" || req.SeqName != "" {
+		if err := s.Store.SetServerGeo(r.Context(), id, strings.ToUpper(req.Country), req.SeqName); err != nil {
+			s.logf("api: set server geo %d: %v", id, err)
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// handleUpdateServer re-parses an edited link and overwrites the server's
+// connection fields plus its country/seq_name overrides.
+func (s *AdminServer) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req serverWriteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	srv, err := ingest.Parse(strings.TrimSpace(req.RawURI))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "could not parse config: "+err.Error())
+		return
+	}
+	srv.Country = strings.ToUpper(req.Country)
+	srv.SeqName = req.SeqName
+	ok, err := s.Store.UpdateServer(r.Context(), id, srv)
+	if errors.Is(err, store.ErrServerExists) {
+		writeErr(w, http.StatusConflict, "another server with the same identity already exists")
+		return
+	}
+	if err != nil {
+		s.logf("api: update server %d: %v", id, err)
+		writeErr(w, http.StatusInternalServerError, "update server failed")
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "server not found")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleDeleteServer removes a server and its dependent rows (cascade).
+func (s *AdminServer) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	deleted, err := s.Store.DeleteServer(r.Context(), id)
+	if err != nil {
+		s.logf("api: delete server %d: %v", id, err)
+		writeErr(w, http.StatusInternalServerError, "delete server failed")
+		return
+	}
+	if !deleted {
+		writeErr(w, http.StatusNotFound, "server not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- GET /workers ---
 
 // workerView serializes a worker with lowercase keys, consistent with the rest
@@ -631,6 +734,72 @@ func (s *AdminServer) handlePutSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// --- POST /sources/import (paste links/configs, one per line) ---
+
+type importSourcesReq struct {
+	Text string `json:"text"`
+}
+
+type importSourcesResp struct {
+	Added        int      `json:"added"`        // sources upserted
+	Subscription int      `json:"subscription"` // of which http(s) subscription URLs
+	Inline       int      `json:"inline"`       // of which inline share links
+	File         int      `json:"file"`         // of which local file paths
+	Skipped      []string `json:"skipped"`      // lines we could not classify
+}
+
+// classifySourceLine decides what kind of ingest source a pasted line is:
+// a parseable share link becomes an inline config, an http(s) URL a subscription,
+// and anything else a local file path. The empty kind means "skip".
+func classifySourceLine(line string) model.SourceKind {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return ""
+	}
+	if _, err := ingest.Parse(line); err == nil {
+		return model.SourceRawInline
+	}
+	low := strings.ToLower(line)
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		return model.SourceSubscriptionURL
+	}
+	return model.SourceRawFile
+}
+
+// handleImportSources classifies each pasted line and upserts it as the matching
+// source kind, so the operator can paste a mix of subscription URLs, raw share
+// links and file paths without choosing a type per entry.
+func (s *AdminServer) handleImportSources(w http.ResponseWriter, r *http.Request) {
+	var req importSourcesReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	resp := importSourcesResp{Skipped: []string{}}
+	for _, line := range strings.Split(req.Text, "\n") {
+		line = strings.TrimSpace(line)
+		kind := classifySourceLine(line)
+		if kind == "" {
+			continue
+		}
+		if err := s.Store.UpsertSource(r.Context(), kind, line); err != nil {
+			s.logf("api: import source: %v", err)
+			resp.Skipped = append(resp.Skipped, line)
+			continue
+		}
+		resp.Added++
+		switch kind {
+		case model.SourceSubscriptionURL:
+			resp.Subscription++
+		case model.SourceRawInline:
+			resp.Inline++
+		case model.SourceRawFile:
+			resp.File++
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- GET/PUT /settings ---

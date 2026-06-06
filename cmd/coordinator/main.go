@@ -222,6 +222,7 @@ func buildHTTP(st *store.Store, sched *scheduler.Scheduler, logs *logbuf.Hub) ht
 	mux.Handle("/api/v1/logs", admin)
 	mux.Handle("/api/v1/notify-test", admin)
 	mux.Handle("/api/v1/sources", admin)
+	mux.Handle("/api/v1/sources/import", admin)
 	mux.Handle("/api/v1/settings", admin)
 	mux.Handle("/api/v1/actions/", admin)
 	mux.Handle("/api/v1/worker-tokens", admin)
@@ -331,6 +332,9 @@ func loadServers(ctx context.Context, st *store.Store) ([]model.Server, error) {
 
 func readSource(ctx context.Context, src model.Source) (string, error) {
 	switch src.Kind {
+	case model.SourceRawInline:
+		// The config text is the location itself; no fetch needed.
+		return src.Location, nil
 	case model.SourceRawFile:
 		b, err := os.ReadFile(src.Location)
 		return string(b), err

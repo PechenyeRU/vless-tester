@@ -54,6 +54,10 @@
 		}
 	}
 
+	// Obfuscated /sub token (sub.path): when set, the working list is only served
+	// at /sub/<token>, so the copied links must carry it.
+	let subPath = $state('');
+
 	async function load() {
 		loading = true;
 		error = '';
@@ -64,13 +68,19 @@
 		} finally {
 			loading = false;
 		}
+		try {
+			const sett = await api.settings();
+			subPath = (sett && sett['sub.path']) || '';
+		} catch {
+			/* settings are best-effort here; links just fall back to bare /sub */
+		}
 	}
 
 	const aliveCount = $derived(workers.filter((w) => w.status !== 'dead').length);
 
 	// Public subscription distribution links (served unauthenticated by /sub).
 	const subTargets = [
-		{ id: 'base64', label: 'Base64', desc: 'Universal base64 list — v2rayN, Nekobox, most clients.' },
+		{ id: 'base64', label: 'Base64', desc: 'Universal base64 list for v2rayN, Nekobox, most clients.' },
 		{ id: 'singbox', label: 'sing-box', desc: 'sing-box JSON (outbounds + selector/urltest).' },
 		{ id: 'clash', label: 'Clash / Mihomo', desc: 'Full mihomo config with proxy-groups + ACL4SSR rules.' },
 		{ id: 'v2ray', label: 'V2Ray', desc: 'Plain newline list of share URIs.' },
@@ -80,7 +90,8 @@
 
 	function subUrl(target) {
 		const origin = typeof window !== 'undefined' ? window.location.origin : '';
-		return `${origin}/sub?target=${target}`;
+		const base = subPath ? `${origin}/sub/${encodeURIComponent(subPath)}` : `${origin}/sub`;
+		return `${base}?target=${target}`;
 	}
 
 	async function copy(target) {
@@ -170,7 +181,7 @@
 					<span class="text-base-content/60">
 						ETA {dur(progress.eta_seconds)} · {progress.per_minute
 							? Math.round(progress.per_minute) + '/min'
-							: '—'} · elapsed {dur(progress.elapsed_seconds)}
+							: '-'} · elapsed {dur(progress.elapsed_seconds)}
 					</span>
 				</div>
 				<progress class="progress progress-primary w-full" value={progress.percent} max="100"></progress>
@@ -181,8 +192,8 @@
 				</div>
 			{:else}
 				<p class="text-sm text-base-content/60">
-					Idle — no test cycle running. Trigger one from
-					<a class="link" href="/admin">Admin → Actions</a>.
+					Idle, no test cycle running. Trigger one from the
+					<a class="link" href="/admin">Admin page (Actions)</a>.
 				</p>
 			{/if}
 
@@ -233,7 +244,7 @@
 								href={subUrl(t.id)}
 								target="_blank"
 								rel="noreferrer"
-								aria-label="open {t.label} subscription">↗</a
+								aria-label="open {t.label} subscription">Open</a
 							>
 							<button class="join-item btn btn-sm btn-primary" onclick={() => copy(t.id)}>
 								{copied === t.id ? 'Copied' : 'Copy'}
@@ -269,9 +280,9 @@
 											{w.status}
 										</span>
 									</td>
-									<td>{w.capacity?.latency ?? '—'}</td>
-									<td>{w.capacity?.speed ?? '—'}</td>
-									<td>{w.capacity?.bw_mbps ? w.capacity.bw_mbps.toFixed(1) + ' MB/s' : '—'}</td>
+									<td>{w.capacity?.latency ?? '-'}</td>
+									<td>{w.capacity?.speed ?? '-'}</td>
+									<td>{w.capacity?.bw_mbps ? w.capacity.bw_mbps.toFixed(1) + ' MB/s' : '-'}</td>
 									<td class="text-base-content/60">{ago(w.last_seen)}</td>
 								</tr>
 							{/each}
@@ -294,7 +305,7 @@
 						<tbody>
 							{#each stats.by_country || [] as c}
 								<tr class="hover">
-									<td>{flag(c.country)} {c.country || '—'}</td>
+									<td>{flag(c.country)} {c.country || '-'}</td>
 									<td>{c.servers}</td>
 									<td>{c.tested}</td>
 									<td class="font-medium">{mbps(c.median_dl_mbps)}</td>

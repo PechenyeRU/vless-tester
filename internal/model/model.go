@@ -179,12 +179,16 @@ type Check struct {
 	Detail   string
 }
 
-// SourceKind distinguishes raw link files from subscription URLs.
+// SourceKind distinguishes raw link files from subscription URLs and inline
+// configs pasted directly into the dashboard.
 type SourceKind string
 
 const (
 	SourceRawFile         SourceKind = "raw_file"
 	SourceSubscriptionURL SourceKind = "subscription_url"
+	// SourceRawInline is a single share link stored verbatim in Location, pasted
+	// straight into the dashboard rather than fetched from a URL or file.
+	SourceRawInline SourceKind = "raw_inline"
 )
 
 // Source is an ingest origin.
