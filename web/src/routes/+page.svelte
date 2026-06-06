@@ -14,7 +14,7 @@
 	let logLines = $state([]);
 	let logSeq = $state(0);
 	let autoScroll = $state(true);
-	let logEl;
+	let logEl = $state();
 
 	async function pollLive() {
 		try {
