@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/store"
 )
@@ -394,7 +395,7 @@ func TestNackJobs(t *testing.T) {
 }
 
 // recordPass claims one funnel slot for the worker and reports a passing run.
-func recordPass(t *testing.T, st *store.Store, worker string, serverID int64, latency int, dl float64) {
+func recordPass(t *testing.T, st *store.Store, worker string, _ int64, latency int, dl float64) {
 	t.Helper()
 	ctx := context.Background()
 	claimed, err := st.ClaimJobs(ctx, worker, model.PhaseFunnel, 1, nil)

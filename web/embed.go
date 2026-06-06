@@ -37,7 +37,7 @@ func Handler() http.Handler {
 		// Serve a real asset when one exists at this path.
 		if f, err := sub.Open(p); err == nil {
 			info, statErr := f.Stat()
-			f.Close()
+			_ = f.Close()
 			if statErr == nil && !info.IsDir() {
 				fileServer.ServeHTTP(w, r)
 				return

@@ -58,10 +58,10 @@ func (f *fakeStore) Heartbeat(_ context.Context, workerID, status string) error 
 	return nil
 }
 
-func (f *fakeStore) ClaimJobs(_ context.Context, workerID string, phase model.JobPhase, max int, protocols []string) ([]store.ClaimedJob, error) {
+func (f *fakeStore) ClaimJobs(_ context.Context, workerID string, phase model.JobPhase, limit int, protocols []string) ([]store.ClaimedJob, error) {
 	f.claimArgs.worker = workerID
 	f.claimArgs.phase = phase
-	f.claimArgs.max = max
+	f.claimArgs.max = limit
 	f.claimArgs.protocols = protocols
 	return f.claimOut, nil
 }
@@ -75,7 +75,7 @@ func (f *fakeStore) RecordResult(_ context.Context, workerID string, jobID int64
 	return true, nil
 }
 
-func (f *fakeStore) NackJobs(_ context.Context, workerID string, jobIDs []int64) (int64, error) {
+func (f *fakeStore) NackJobs(_ context.Context, _ string, jobIDs []int64) (int64, error) {
 	var n int64
 	for _, id := range jobIDs {
 		if f.owned[id] {

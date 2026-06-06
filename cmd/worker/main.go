@@ -36,7 +36,7 @@ func run() error {
 		return fmt.Errorf("COORDINATOR_URL is required")
 	}
 
-	// Control channel: optionally tunnelled through a SOCKS5 (COORDINATOR_PROXY),
+	// Control channel: optionally tunneled through a SOCKS5 (COORDINATOR_PROXY),
 	// independent of the local sing-box proxy used to test servers.
 	httpClient, err := worker.ProxyClient(os.Getenv("COORDINATOR_PROXY"), 30*time.Second)
 	if err != nil {

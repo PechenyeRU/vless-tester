@@ -4,6 +4,7 @@
 // It is a separate trust domain from the worker control plane in api.go: workers
 // authenticate with their own per-worker tokens, the admin UI with a distinct
 // admin token, so a compromised worker can never reach these mutating endpoints.
+
 package api
 
 import (
@@ -611,13 +612,13 @@ func (s *AdminServer) handleProgress(w http.ResponseWriter, r *http.Request) {
 // handleCancelCycle aborts the in-flight test cycle (fails its open jobs and
 // finishes the batch without publishing).
 func (s *AdminServer) handleCancelCycle(w http.ResponseWriter, r *http.Request) {
-	cancelled, err := s.Store.CancelActiveCycle(r.Context())
+	canceled, err := s.Store.CancelActiveCycle(r.Context())
 	if err != nil {
 		s.logf("api: cancel cycle: %v", err)
 		writeErr(w, http.StatusInternalServerError, "cancel failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"cancelled": cancelled})
+	writeJSON(w, http.StatusOK, map[string]bool{"canceled": canceled})
 }
 
 // --- POST /notify-test ---

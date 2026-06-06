@@ -31,7 +31,7 @@ const (
 type Store interface {
 	UpsertWorker(ctx context.Context, w model.Worker) error
 	Heartbeat(ctx context.Context, workerID, status string) error
-	ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int, protocols []string) ([]store.ClaimedJob, error)
+	ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, limit int, protocols []string) ([]store.ClaimedJob, error)
 	RecordResult(ctx context.Context, workerID string, jobID int64, r model.TestRun) (bool, error)
 	NackJobs(ctx context.Context, workerID string, jobIDs []int64) (int64, error)
 	// MediaChecks returns the media-unlock platforms to probe, or nil when media

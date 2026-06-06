@@ -13,7 +13,7 @@ import (
 type Coordinator interface {
 	Register(ctx context.Context, id string, capacity model.Capacity) (string, error)
 	Heartbeat(ctx context.Context, id, status string, free model.Capacity) error
-	Claim(ctx context.Context, id string, phase model.JobPhase, max int) ([]Job, error)
+	Claim(ctx context.Context, id string, phase model.JobPhase, limit int) ([]Job, error)
 	Report(ctx context.Context, id string, results []Result) (int, error)
 	Nack(ctx context.Context, id string, jobIDs []int64) error
 }
@@ -60,7 +60,7 @@ func (w *Worker) logf(format string, args ...any) {
 	}
 }
 
-// Run registers the worker, then loops until ctx is cancelled.
+// Run registers the worker, then loops until ctx is canceled.
 func (w *Worker) Run(ctx context.Context) error {
 	id, err := w.Coord.Register(ctx, w.ID, w.Capacity)
 	if err != nil {
@@ -108,7 +108,7 @@ func (w *Worker) RunOnce(ctx context.Context) (int, error) {
 	_ = w.Coord.Heartbeat(ctx, w.ID, "busy", w.Capacity)
 
 	// Run the batch concurrently, preserving order via an indexed slice. A job
-	// not run (because ctx was cancelled before its turn) is left nil and nacked.
+	// not run (because ctx was canceled before its turn) is left nil and nacked.
 	slots := make([]*Result, len(jobs))
 	sem := make(chan struct{}, w.concurrency(len(jobs)))
 	var wg sync.WaitGroup
@@ -162,7 +162,7 @@ func (w *Worker) nackRest(jobs []Job) {
 	for i, j := range jobs {
 		ids[i] = j.JobID
 	}
-	// Use a fresh context so a cancelled parent does not also abort the release.
+	// Use a fresh context so a canceled parent does not also abort the release.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := w.Coord.Nack(ctx, w.ID, ids); err != nil {
@@ -170,7 +170,7 @@ func (w *Worker) nackRest(jobs []Job) {
 	}
 }
 
-// sleep waits for d or ctx cancellation; it returns false if ctx was cancelled.
+// sleep waits for d or ctx cancellation; it returns false if ctx was canceled.
 func sleep(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()

@@ -486,7 +486,7 @@ func (e *Engine) probe(ctx context.Context, srv model.Server) (lat, sp checks.Re
 	if err != nil {
 		return checks.Result{Passed: false, Detail: err.Error()}, checks.Result{}
 	}
-	defer inst.Close()
+	defer func() { _ = inst.Close() }()
 
 	client, err := e.NewClient(inst.SocksAddress())
 	if err != nil {

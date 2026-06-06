@@ -12,9 +12,7 @@ import (
 // with no URLs.
 func (s *Store) NotifySettings(ctx context.Context) (enabled bool, urls []string, err error) {
 	if err = s.GetSetting(ctx, "notify.enabled", &enabled); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			err = nil
-		} else {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return false, nil, err
 		}
 	}

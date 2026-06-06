@@ -62,10 +62,6 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    # Non-blocking: surfaces golangci-lint findings without failing CI on a
-    # toolchain/linter version mismatch. Flip to a hard gate once the
-    # golangci-lint version is pinned against the project's Go toolchain.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 

@@ -38,7 +38,7 @@ func (g *GitPublisher) Publish(ctx context.Context, files map[string][]byte, mes
 		if err != nil {
 			return fmt.Errorf("publish: temp dir: %w", err)
 		}
-		defer os.RemoveAll(tmp)
+		defer func() { _ = os.RemoveAll(tmp) }()
 		dir = tmp
 	}
 

@@ -19,9 +19,13 @@ type LatencyCheck struct {
 	Timeout time.Duration
 }
 
-func (c LatencyCheck) Name() string          { return "latency" }
+// Name returns the check's identifier.
+func (c LatencyCheck) Name() string { return "latency" }
+
+// Phase reports which pipeline phase the check runs in.
 func (c LatencyCheck) Phase() model.JobPhase { return model.PhaseLatency }
 
+// Run executes the check through the proxied client and returns its result.
 func (c LatencyCheck) Run(ctx context.Context, client *http.Client) (Result, error) {
 	url := c.URL
 	if url == "" {
@@ -44,7 +48,7 @@ func (c LatencyCheck) Run(ctx context.Context, client *http.Client) (Result, err
 	if err != nil {
 		return Result{Passed: false, Detail: err.Error()}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	elapsed := time.Since(start)
 
 	if resp.StatusCode >= 400 {

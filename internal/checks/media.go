@@ -57,9 +57,13 @@ type MediaCheck struct {
 	Timeout  time.Duration
 }
 
-func (c MediaCheck) Name() string          { return "media:" + c.Platform }
+// Name returns the check's identifier.
+func (c MediaCheck) Name() string { return "media:" + c.Platform }
+
+// Phase reports which pipeline phase the check runs in.
 func (c MediaCheck) Phase() model.JobPhase { return model.PhaseChecks }
 
+// Run executes the check through the proxied client and returns its result.
 func (c MediaCheck) Run(ctx context.Context, client *http.Client) (Result, error) {
 	p, ok := mediaProbes[c.Platform]
 	if !ok {
@@ -103,7 +107,7 @@ func fetch(ctx context.Context, client *http.Client, url string) (int, string) {
 	if err != nil {
 		return 0, err.Error()
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
 	return resp.StatusCode, string(body)
 }

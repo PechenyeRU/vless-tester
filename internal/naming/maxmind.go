@@ -69,7 +69,7 @@ func (d *MaxMindDownloader) Download(ctx context.Context, destPath string) error
 	if err != nil {
 		return fmt.Errorf("geoip: download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("geoip: download status %d", resp.StatusCode)
 	}
@@ -84,7 +84,7 @@ func extractMMDB(r io.Reader, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("geoip: gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -114,16 +114,16 @@ func writeAtomic(destPath string, r io.Reader) error {
 	}
 	tmpName := tmp.Name()
 	if _, err := io.Copy(tmp, r); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("geoip: write: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("geoip: close temp: %w", err)
 	}
 	if err := os.Rename(tmpName, destPath); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("geoip: rename: %w", err)
 	}
 	return nil

@@ -63,6 +63,7 @@ func NewMemoryBackend() *MemoryBackend {
 	return &MemoryBackend{names: map[string]string{}, counters: map[string]int{}}
 }
 
+// Lookup returns the stored name for a fingerprint and whether one exists.
 func (m *MemoryBackend) Lookup(_ context.Context, fingerprint string) (string, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -70,6 +71,7 @@ func (m *MemoryBackend) Lookup(_ context.Context, fingerprint string) (string, b
 	return name, ok, nil
 }
 
+// NextIndex increments and returns the per-country sequence counter.
 func (m *MemoryBackend) NextIndex(_ context.Context, country string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -78,6 +80,7 @@ func (m *MemoryBackend) NextIndex(_ context.Context, country string) (int, error
 	return m.counters[country], nil
 }
 
+// Save records the name assigned to a fingerprint.
 func (m *MemoryBackend) Save(_ context.Context, fingerprint, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

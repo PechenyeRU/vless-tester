@@ -47,6 +47,7 @@ type DNSLeakCheck struct {
 	Timeout time.Duration
 }
 
+// Run executes the DNS-leak probe through the proxied client and returns its result.
 func (c DNSLeakCheck) Run(ctx context.Context, client *http.Client) (DNSLeakResult, error) {
 	ednsURL, exitURL := c.EDNSURL, c.ExitURL
 	if ednsURL == "" {

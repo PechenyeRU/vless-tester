@@ -103,7 +103,7 @@ func TestEmbeddedBlobPresent(t *testing.T) {
 	}
 }
 
-// cacheRoot honours XDG_CACHE_HOME on linux, which the tests rely on for isolation.
+// cacheRoot honors XDG_CACHE_HOME on linux, which the tests rely on for isolation.
 func TestCacheRootUsesUserCacheDir(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("XDG_CACHE_HOME semantics are linux-specific")

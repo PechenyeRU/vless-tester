@@ -61,21 +61,21 @@ func extractEmbedded(data []byte, sum string) (string, error) {
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("core: extract write: %w", err)
 	}
 	if err := tmp.Chmod(0o755); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("core: extract chmod: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("core: extract close: %w", err)
 	}
 	if err := os.Rename(tmpPath, dest); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("core: extract rename: %w", err)
 	}
 	return dest, nil
@@ -87,7 +87,7 @@ func fileMatches(path, wantHex string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return false

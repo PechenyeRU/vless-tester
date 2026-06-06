@@ -41,7 +41,7 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 	if err != nil {
 		return fail(err)
 	}
-	defer inst.Close()
+	defer func() { _ = inst.Close() }()
 
 	client, err := p.NewClient(inst.SocksAddress())
 	if err != nil {
@@ -103,7 +103,7 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		case "speed":
 			sp, ran := p.runSpeed(ctx, client, &res, job.Speed)
 			if !ran {
-				return res // ctx cancelled while waiting for the speed slot
+				return res // ctx canceled while waiting for the speed slot
 			}
 			if st.Gate && !sp.Passed {
 				res.Error = "skipped: speed gate not passed"
@@ -116,7 +116,7 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 
 // defaultStages is the built-in funnel order used when the coordinator does not
 // push a pipeline (older coordinator / unset setting). It mirrors the prior
-// hard-coded behaviour: media gates (honouring Require), ip_risk and speed do not.
+// hard-coded behavior: media gates (honoring Require), ip_risk and speed do not.
 var defaultStages = []model.FunnelStage{
 	{Check: "media", Gate: true},
 	{Check: "ip_risk", Gate: false},
@@ -124,7 +124,7 @@ var defaultStages = []model.FunnelStage{
 }
 
 // runSpeed runs the bandwidth-bounded speed leg, recording dl/ul on res. ran is
-// false only when the context was cancelled while waiting for a speed slot (so
+// false only when the context was canceled while waiting for a speed slot (so
 // the caller keeps prior results); otherwise it ran (sp.Passed reports outcome).
 func (p ProbeRunner) runSpeed(ctx context.Context, client *http.Client, res *Result, spec *model.SpeedSpec) (checks.Result, bool) {
 	if p.SpeedGate != nil {

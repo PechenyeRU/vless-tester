@@ -44,9 +44,13 @@ type SpeedCheck struct {
 	Config SpeedConfig
 }
 
-func (c SpeedCheck) Name() string          { return "speed" }
+// Name returns the check's identifier.
+func (c SpeedCheck) Name() string { return "speed" }
+
+// Phase reports which pipeline phase the check runs in.
 func (c SpeedCheck) Phase() model.JobPhase { return model.PhaseSpeed }
 
+// Run executes the check through the proxied client and returns its result.
 func (c SpeedCheck) Run(ctx context.Context, client *http.Client) (Result, error) {
 	timeout := c.Config.Timeout
 	if timeout == 0 {
@@ -153,7 +157,7 @@ func (c SpeedCheck) oneStream(ctx context.Context, client *http.Client, dir dire
 		if err != nil {
 			return 0, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode >= 400 {
 			return 0, fmt.Errorf("speed: download status %d", resp.StatusCode)
 		}
@@ -170,8 +174,8 @@ func (c SpeedCheck) oneStream(ctx context.Context, client *http.Client, dir dire
 		if err != nil {
 			return 0, err
 		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, resp.Body)
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
 		if resp.StatusCode >= 400 {
 			return 0, fmt.Errorf("speed: upload status %d", resp.StatusCode)
 		}

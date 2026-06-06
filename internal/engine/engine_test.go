@@ -43,7 +43,7 @@ type fakeResolver map[string]string
 
 func (f fakeResolver) LookupCountry(ip net.IP) (string, error) { return f[ip.String()], nil }
 
-func newSpeedServer(t *testing.T) *httptest.Server {
+func newSpeedServer(_ *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/204", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
 	mux.HandleFunc("/down", func(w http.ResponseWriter, r *http.Request) {

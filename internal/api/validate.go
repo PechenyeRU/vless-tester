@@ -110,19 +110,19 @@ func clampMetric(m *float64) *float64 {
 	return &v
 }
 
-func truncate(s string, max int) string {
-	if len(s) > max {
-		return s[:max]
+func truncate(s string, limit int) string {
+	if len(s) > limit {
+		return s[:limit]
 	}
 	return s
 }
 
-// clampMBps drops a throughput value that is negative or above max.
-func clampMBps(v *float64, max float64) *float64 {
+// clampMBps drops a throughput value that is negative or above limit.
+func clampMBps(v *float64, limit float64) *float64 {
 	if v == nil {
 		return nil
 	}
-	if *v < 0 || *v > max || *v != *v { // last test rejects NaN
+	if *v < 0 || *v > limit || *v != *v { // last test rejects NaN
 		return nil
 	}
 	return v

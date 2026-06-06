@@ -249,7 +249,7 @@ func apiAddr() string {
 // buildEngine wires the coordinator-side engine. It does no in-process probing
 // (remote workers test); it dispatches jobs, reconciles, and publishes. The gate
 // and queue knobs come from settings so they are tunable from the admin UI.
-func buildEngine(ctx context.Context, st *store.Store) *engine.Engine {
+func buildEngine(_ context.Context, st *store.Store) *engine.Engine {
 	var resolver naming.CountryResolver
 	if path := geoipPath(); fileExists(path) {
 		if mm, err := naming.OpenMaxMind(path); err == nil {
@@ -348,7 +348,7 @@ func readSource(ctx context.Context, src model.Source) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		b, err := io.ReadAll(resp.Body)
 		return string(b), err
 	default:

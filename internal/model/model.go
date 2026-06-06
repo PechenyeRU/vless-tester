@@ -8,6 +8,7 @@ import "time"
 // Protocol identifies a proxy protocol supported by the tester.
 type Protocol string
 
+// ProtocolVLESS and the sibling Protocol values enumerate the supported proxy protocols.
 const (
 	ProtocolVLESS       Protocol = "vless"
 	ProtocolVMess       Protocol = "vmess"
@@ -44,6 +45,7 @@ type Server struct {
 // JobPhase is a stage of the funnel pipeline.
 type JobPhase string
 
+// PhaseLatency and the sibling JobPhase values enumerate the pipeline stages.
 const (
 	PhaseLatency JobPhase = "latency"
 	PhaseSpeed   JobPhase = "speed"
@@ -56,6 +58,7 @@ const (
 // JobState is the lifecycle state of a queued job.
 type JobState string
 
+// JobQueued and the sibling JobState values enumerate the job lifecycle states.
 const (
 	JobQueued  JobState = "queued"
 	JobClaimed JobState = "claimed"
@@ -109,6 +112,7 @@ type Capacity struct {
 // RunStatus is the outcome of a test run.
 type RunStatus string
 
+// StatusOK and the sibling RunStatus values enumerate the possible test outcomes.
 const (
 	StatusOK      RunStatus = "ok"
 	StatusTimeout RunStatus = "timeout"
@@ -183,6 +187,7 @@ type Check struct {
 // configs pasted directly into the dashboard.
 type SourceKind string
 
+// SourceRawFile and the sibling SourceKind values enumerate where a server came from.
 const (
 	SourceRawFile         SourceKind = "raw_file"
 	SourceSubscriptionURL SourceKind = "subscription_url"

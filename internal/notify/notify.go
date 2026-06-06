@@ -11,6 +11,7 @@ import (
 
 	"github.com/containrrr/shoutrrr"
 	"github.com/containrrr/shoutrrr/pkg/router"
+
 	"github.com/whitedns/vless-tester/internal/naming"
 )
 

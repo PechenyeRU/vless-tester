@@ -17,11 +17,11 @@ func TestSemaphoreCapsConcurrency(t *testing.T) {
 		t.Fatalf("acquire 2: %v", err)
 	}
 
-	// The third acquire must block; with an already-cancelled context it errors.
-	cancelled, cancel := context.WithCancel(ctx)
+	// The third acquire must block; with an already-canceled context it errors.
+	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := s.Acquire(cancelled); err == nil {
-		t.Fatal("third acquire should fail when full and context is cancelled")
+	if err := s.Acquire(canceled); err == nil {
+		t.Fatal("third acquire should fail when full and context is canceled")
 	}
 
 	s.Release()

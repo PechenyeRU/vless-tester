@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/whitedns/vless-tester/internal/model"
 )
 
@@ -51,7 +52,7 @@ func (s *Store) EnqueueFanout(ctx context.Context, batchID, serverID int64, phas
 // job for a (server, phase) it already holds or has already tested: this is how
 // fan-out spreads each config across different workers (DESIGN 5). Claimed jobs
 // are returned with their server raw_uri.
-func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, max int, protocols []string) ([]ClaimedJob, error) {
+func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobPhase, limit int, protocols []string) ([]ClaimedJob, error) {
 	phaseFilter := string(phase)
 	const q = `
 		WITH locked AS (
@@ -96,7 +97,7 @@ func (s *Store) ClaimJobs(ctx context.Context, workerID string, phase model.JobP
 	if len(protocols) > 0 {
 		protoArg = protocols
 	}
-	rows, err := s.pool.Query(ctx, q, workerID, phaseFilter, max, protoArg)
+	rows, err := s.pool.Query(ctx, q, workerID, phaseFilter, limit, protoArg)
 	if err != nil {
 		return nil, fmt.Errorf("claim jobs: %w", err)
 	}
@@ -218,7 +219,7 @@ func (s *Store) RecordResult(ctx context.Context, workerID string, jobID int64, 
 	if err != nil {
 		return false, fmt.Errorf("record result: begin: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var serverID int64
 	var phase string

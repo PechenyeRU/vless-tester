@@ -46,10 +46,10 @@ func TestCycleProgress(t *testing.T) {
 		t.Error("started_at not set")
 	}
 
-	// Cancelling fails the open jobs and returns to idle (no publish).
-	cancelled, err := st.CancelActiveCycle(ctx)
-	if err != nil || !cancelled {
-		t.Fatalf("cancel: cancelled=%v err=%v", cancelled, err)
+	// Canceling fails the open jobs and returns to idle (no publish).
+	canceled, err := st.CancelActiveCycle(ctx)
+	if err != nil || !canceled {
+		t.Fatalf("cancel: canceled=%v err=%v", canceled, err)
 	}
 	if cp, _ := st.CycleProgress(ctx); cp.Active {
 		t.Fatalf("after cancel: still active")
@@ -59,8 +59,8 @@ func TestCycleProgress(t *testing.T) {
 	if open != 0 {
 		t.Fatalf("cancel left %d open jobs", open)
 	}
-	// Cancelling again is a no-op (nothing active).
-	if cancelled, _ := st.CancelActiveCycle(ctx); cancelled {
+	// Canceling again is a no-op (nothing active).
+	if canceled, _ := st.CancelActiveCycle(ctx); canceled {
 		t.Fatalf("second cancel should be a no-op")
 	}
 }

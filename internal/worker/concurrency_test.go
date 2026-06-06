@@ -36,11 +36,11 @@ func (r *trackRunner) Run(ctx context.Context, job Job) Result {
 	return Result{JobID: job.JobID, Status: string(model.StatusOK)}
 }
 
-func bump(cur, max *int32) {
+func bump(cur, limit *int32) {
 	n := atomic.AddInt32(cur, 1)
 	for {
-		m := atomic.LoadInt32(max)
-		if n <= m || atomic.CompareAndSwapInt32(max, m, n) {
+		m := atomic.LoadInt32(limit)
+		if n <= m || atomic.CompareAndSwapInt32(limit, m, n) {
 			return
 		}
 	}

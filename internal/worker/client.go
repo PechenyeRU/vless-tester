@@ -84,11 +84,11 @@ func (c *Client) Heartbeat(ctx context.Context, id, status string, free model.Ca
 	}, nil)
 }
 
-// Claim leases up to max queued jobs for the given phase ("" = any).
-func (c *Client) Claim(ctx context.Context, workerID string, phase model.JobPhase, max int) ([]Job, error) {
+// Claim leases up to limit queued jobs for the given phase ("" = any).
+func (c *Client) Claim(ctx context.Context, workerID string, phase model.JobPhase, limit int) ([]Job, error) {
 	var jobs []Job
 	if err := c.post(ctx, "/api/v1/jobs/claim", map[string]any{
-		"worker_id": workerID, "phase": string(phase), "max": max,
+		"worker_id": workerID, "phase": string(phase), "max": limit,
 	}, &jobs); err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	if err != nil {
 		return fmt.Errorf("worker: post %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

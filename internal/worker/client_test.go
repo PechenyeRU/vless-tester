@@ -31,9 +31,9 @@ func (f *apiFake) UpsertWorker(_ context.Context, w model.Worker) error {
 	return nil
 }
 func (f *apiFake) Heartbeat(_ context.Context, _, _ string) error { return nil }
-func (f *apiFake) ClaimJobs(_ context.Context, _ string, _ model.JobPhase, max int, _ []string) ([]store.ClaimedJob, error) {
-	if len(f.jobs) > max {
-		return f.jobs[:max], nil
+func (f *apiFake) ClaimJobs(_ context.Context, _ string, _ model.JobPhase, limit int, _ []string) ([]store.ClaimedJob, error) {
+	if len(f.jobs) > limit {
+		return f.jobs[:limit], nil
 	}
 	return f.jobs, nil
 }

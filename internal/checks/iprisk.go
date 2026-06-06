@@ -63,6 +63,7 @@ type IPRiskCheck struct {
 	Timeout time.Duration
 }
 
+// Name returns the check's identifier.
 func (c IPRiskCheck) Name() string { return "ip_risk" }
 
 // Run fetches the provider payload through the proxy and scores it. A transport

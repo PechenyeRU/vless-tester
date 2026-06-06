@@ -123,12 +123,12 @@ func TestRunOnceNacksOnReportFailure(t *testing.T) {
 func TestRunOnceNacksRestOnCancel(t *testing.T) {
 	coord := &fakeCoord{claimQueue: [][]Job{{{JobID: 1}, {JobID: 2}, {JobID: 3}}}}
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled: the loop nacks the whole batch before running any
+	cancel() // already canceled: the loop nacks the whole batch before running any
 	w := &Worker{ID: "w1", Coord: coord, Runner: &echoRunner{}}
 
 	_, _ = w.RunOnce(ctx)
 	if len(coord.nacked) != 1 || len(coord.nacked[0]) != 3 {
-		t.Fatalf("cancelled batch should nack all 3, got %+v", coord.nacked)
+		t.Fatalf("canceled batch should nack all 3, got %+v", coord.nacked)
 	}
 }
 

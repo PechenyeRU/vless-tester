@@ -65,7 +65,7 @@ func run(linksFile string) error {
 		if err != nil {
 			return err
 		}
-		defer mm.Close()
+		defer func() { _ = mm.Close() }()
 		resolver = mm
 	}
 

@@ -10,8 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/whitedns/vless-tester/internal/ingest"
 	"gopkg.in/yaml.v3"
+
+	"github.com/whitedns/vless-tester/internal/ingest"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

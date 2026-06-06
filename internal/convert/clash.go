@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/whitedns/vless-tester/internal/model"
 	"gopkg.in/yaml.v3"
+
+	"github.com/whitedns/vless-tester/internal/model"
 )
 
 // clashGroup is the manual proxy-group name used by the surge renderer.

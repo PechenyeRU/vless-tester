@@ -59,15 +59,15 @@ func Start(ctx context.Context, srv model.Server, opts Options) (*Instance, erro
 	}
 	configPath := f.Name()
 	if _, err := f.Write(cfg); err != nil {
-		f.Close()
-		os.Remove(configPath)
+		_ = f.Close()
+		_ = os.Remove(configPath)
 		return nil, fmt.Errorf("core: write config: %w", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	cmd := exec.CommandContext(ctx, bin, "run", "-c", configPath)
 	if err := cmd.Start(); err != nil {
-		os.Remove(configPath)
+		_ = os.Remove(configPath)
 		return nil, fmt.Errorf("core: start sing-box: %w", err)
 	}
 
@@ -78,7 +78,7 @@ func Start(ctx context.Context, srv model.Server, opts Options) (*Instance, erro
 		timeout = 5 * time.Second
 	}
 	if err := waitReady(ctx, inst, timeout); err != nil {
-		inst.Close()
+		_ = inst.Close()
 		return nil, err
 	}
 	return inst, nil
@@ -92,7 +92,7 @@ func (i *Instance) Close() error {
 		_, err = i.cmd.Process.Wait()
 	}
 	if i.configPath != "" {
-		os.Remove(i.configPath)
+		_ = os.Remove(i.configPath)
 	}
 	return err
 }
@@ -111,7 +111,7 @@ func waitReady(ctx context.Context, inst *Instance, timeout time.Duration) error
 		}
 		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -175,6 +175,6 @@ func FreePort() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("core: free port: %w", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port, nil
 }

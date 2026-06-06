@@ -75,7 +75,7 @@ func (s *Scheduler) Trigger(name string) error {
 }
 
 // Start launches every job in its own goroutine and returns immediately. Jobs
-// stop when ctx is cancelled.
+// stop when ctx is canceled.
 func (s *Scheduler) Start(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

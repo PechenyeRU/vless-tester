@@ -31,7 +31,7 @@ type fakeAdminStore struct {
 	progress         store.CycleProgress
 	notifyEnabled    bool
 	notifyURLs       []string
-	cancelled        bool
+	canceled         bool
 	sources          []model.Source
 	settings         map[string]json.RawMessage
 	upserted         []model.Source
@@ -76,7 +76,7 @@ func (f *fakeAdminStore) UpsertServer(_ context.Context, srv model.Server) (int6
 	f.upsertedServer = srv
 	return 1, nil
 }
-func (f *fakeAdminStore) UpdateServer(_ context.Context, id int64, srv model.Server) (bool, error) {
+func (f *fakeAdminStore) UpdateServer(_ context.Context, _ int64, srv model.Server) (bool, error) {
 	f.updatedServer = srv
 	if f.updateErr != nil {
 		return false, f.updateErr
@@ -87,7 +87,7 @@ func (f *fakeAdminStore) DeleteServer(_ context.Context, id int64) (bool, error)
 	f.deletedServer = id
 	return f.deleteOK, nil
 }
-func (f *fakeAdminStore) SetServerGeo(_ context.Context, id int64, country, seqName string) error {
+func (f *fakeAdminStore) SetServerGeo(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
 func (f *fakeAdminStore) ServerHistory(_ context.Context, _ int64, _ int) ([]store.RunRecord, error) {
@@ -107,7 +107,7 @@ func (f *fakeAdminStore) NotifySettings(_ context.Context) (bool, []string, erro
 	return f.notifyEnabled, f.notifyURLs, nil
 }
 func (f *fakeAdminStore) CancelActiveCycle(_ context.Context) (bool, error) {
-	f.cancelled = true
+	f.canceled = true
 	return true, nil
 }
 func (f *fakeAdminStore) ListAllSources(_ context.Context) ([]model.Source, error) {
@@ -299,7 +299,7 @@ func TestAdminCancelCycle(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
 	}
-	if !f.cancelled {
+	if !f.canceled {
 		t.Fatal("store CancelActiveCycle was not called")
 	}
 }

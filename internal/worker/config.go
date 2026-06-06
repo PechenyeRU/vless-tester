@@ -8,9 +8,10 @@ import (
 	"regexp"
 	"time"
 
+	"golang.org/x/net/proxy"
+
 	"github.com/whitedns/vless-tester/internal/ident"
 	"github.com/whitedns/vless-tester/internal/model"
-	"golang.org/x/net/proxy"
 )
 
 // idPattern is the worker-id contract shared with the coordinator schema.
