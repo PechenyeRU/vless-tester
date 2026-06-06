@@ -107,6 +107,25 @@ func run() error {
 		},
 	})
 
+	// Naming: resolve country + seq_name for gate-passing servers continuously,
+	// so geo shows up in the dashboard soon after a server passes instead of only
+	// at the (possibly hours-away) end-of-batch publish.
+	sched.Add(scheduler.Job{
+		Name:       "name",
+		IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "name.interval", 60*time.Second) },
+		RunOnStart: true,
+		Run: func(ctx context.Context) error {
+			n, err := eng.NameApproved(ctx)
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				log.Printf("name: assigned %d new node names", n)
+			}
+			return nil
+		},
+	})
+
 	// Fleet metrics: periodic snapshot of fleet and queue health.
 	sched.Add(scheduler.Job{
 		Name:       "metrics",

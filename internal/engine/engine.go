@@ -425,6 +425,32 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	return sum, nil
 }
 
+// NameApproved resolves the country and assigns a stable seq_name for servers
+// that have cleared the approval gate but are not yet named. It runs the naming
+// half of PublishFromHistory on its own, decoupled from publish, so the dashboard
+// shows geo within a naming cycle of a server passing instead of only at the
+// end-of-batch publish (which, with enqueue-all, can be hours away). ensureGeo is
+// idempotent, so this never re-names and never conflicts with publish-time naming.
+func (e *Engine) NameApproved(ctx context.Context) (int, error) {
+	ap := e.approval(ctx)
+	approved, err := e.Store.ApprovedServers(ctx, nil, ap.MinDlMBps, ap.MaxLatencyMs, ap.required())
+	if err != nil {
+		return 0, fmt.Errorf("engine: name approved: %w", err)
+	}
+	named := 0
+	for _, a := range approved {
+		if a.SeqName != "" {
+			continue
+		}
+		if _, _, err := e.ensureGeo(ctx, a.ServerID, a.Fingerprint, a.Host); err != nil {
+			e.logf("engine: name server %d: %v", a.ServerID, err)
+			continue
+		}
+		named++
+	}
+	return named, nil
+}
+
 // applyOutputFilter applies the publish-time output filters: a node-name regex
 // include/exclude and a success-limit cap (the list is already sorted best-first
 // by speed). An invalid regex is logged and ignored (no filtering on that side).
