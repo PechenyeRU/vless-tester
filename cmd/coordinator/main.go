@@ -60,6 +60,9 @@ func run() error {
 	sched := scheduler.New(func(name string, err error) {
 		log.Printf("job %q error: %v", name, err)
 	})
+	// Persist job schedules so a restart resumes the cadence instead of
+	// re-firing run-on-start jobs (notably dispatch) on every redeploy.
+	sched.SetStore(st)
 
 	// Dispatch: ingest sources and enqueue a fan-out of jobs for the fleet. It is
 	// a no-op while a previous cycle is still draining.
@@ -67,6 +70,7 @@ func run() error {
 		Name:       "dispatch",
 		IntervalFn: func() time.Duration { return intervalSetting(ctx, st, "dispatch.interval", 12*time.Hour) },
 		RunOnStart: true,
+		Persistent: true, // resume the cadence across restarts; don't re-dispatch on every boot
 		Run: func(ctx context.Context) error {
 			servers, err := loadServers(ctx, st)
 			if err != nil {

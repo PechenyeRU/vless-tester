@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// Store persists per-job last-run times so a job's cadence survives process
+// restarts. Optional: without a Store, every RunOnStart job runs on each boot.
+type Store interface {
+	LastRun(ctx context.Context, name string) (time.Time, bool, error)
+	SetLastRun(ctx context.Context, name string, t time.Time) error
+}
+
 // Job is a named periodic task.
 type Job struct {
 	Name string
@@ -21,6 +28,11 @@ type Job struct {
 	IntervalFn func() time.Duration
 	Run        func(ctx context.Context) error
 	RunOnStart bool // execute once immediately when the scheduler starts
+	// Persistent ties this job's cadence to the Store: its last run is recorded,
+	// and on boot it runs (and re-arms its timer) from that record rather than
+	// firing on every restart. Use for expensive jobs (e.g. dispatch) that must
+	// not re-trigger each redeploy. Requires a Store; otherwise behaves normally.
+	Persistent bool
 }
 
 // interval returns the job's current run period (dynamic when IntervalFn is set).
@@ -37,7 +49,12 @@ type Scheduler struct {
 	jobs     map[string]*Job
 	triggers map[string]chan struct{}
 	onError  func(name string, err error)
+	store    Store            // optional, for Persistent jobs
+	now      func() time.Time // injectable clock (tests); defaults to time.Now
 }
+
+// SetStore enables persistence for Persistent jobs. Call before Start.
+func (s *Scheduler) SetStore(store Store) { s.store = store }
 
 // New creates an empty scheduler. onError is invoked when a job returns an
 // error; pass nil to ignore errors.
@@ -46,6 +63,7 @@ func New(onError func(name string, err error)) *Scheduler {
 		jobs:     map[string]*Job{},
 		triggers: map[string]chan struct{}{},
 		onError:  onError,
+		now:      time.Now,
 	}
 }
 
@@ -85,15 +103,17 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) runLoop(ctx context.Context, job *Job, trigger <-chan struct{}) {
-	if job.RunOnStart {
-		s.exec(ctx, job)
+	if job.RunOnStart && s.dueOnStart(ctx, job) {
+		s.run(ctx, job)
 	}
 	// Re-arm a timer each iteration reading the current interval, so a dynamic
-	// IntervalFn (settings-backed) takes effect without restarting the loop.
+	// IntervalFn (settings-backed) takes effect without restarting the loop. For a
+	// Persistent job the first wait is shortened by however long ago it last ran,
+	// so its cadence is unaffected by restarts.
 	for {
 		var tick <-chan time.Time
 		var timer *time.Timer
-		if d := job.interval(); d > 0 {
+		if d := s.nextDelay(ctx, job); d >= 0 {
 			timer = time.NewTimer(d)
 			tick = timer.C
 		}
@@ -104,12 +124,59 @@ func (s *Scheduler) runLoop(ctx context.Context, job *Job, trigger <-chan struct
 			}
 			return
 		case <-tick:
-			s.exec(ctx, job)
+			s.run(ctx, job)
 		case <-trigger:
 			if timer != nil && !timer.Stop() {
 				<-timer.C // drain the fired timer before re-arming
 			}
-			s.exec(ctx, job)
+			s.run(ctx, job) // a manual trigger always runs, schedule aside
+		}
+	}
+}
+
+// dueOnStart reports whether a RunOnStart job should fire on boot. Non-persistent
+// jobs always do; a persistent one runs only if its interval has elapsed since
+// the recorded last run (so a redeploy does not re-trigger it).
+func (s *Scheduler) dueOnStart(ctx context.Context, job *Job) bool {
+	if !job.Persistent || s.store == nil {
+		return true
+	}
+	last, ok, err := s.store.LastRun(ctx, job.Name)
+	if err != nil || !ok {
+		return true
+	}
+	d := job.interval()
+	return d <= 0 || s.now().Sub(last) >= d
+}
+
+// nextDelay is how long to wait before the next scheduled run. It returns -1 to
+// mean "no timer" (manual-only job, interval <= 0). For a persistent job it
+// subtracts the elapsed time since the last recorded run, clamped to zero.
+func (s *Scheduler) nextDelay(ctx context.Context, job *Job) time.Duration {
+	d := job.interval()
+	if d <= 0 {
+		return -1
+	}
+	if !job.Persistent || s.store == nil {
+		return d
+	}
+	last, ok, err := s.store.LastRun(ctx, job.Name)
+	if err != nil || !ok {
+		return d
+	}
+	if rem := d - s.now().Sub(last); rem > 0 {
+		return rem
+	}
+	return 0
+}
+
+// run executes a job and, for a persistent job, records the run time so the
+// schedule survives restarts.
+func (s *Scheduler) run(ctx context.Context, job *Job) {
+	s.exec(ctx, job)
+	if job.Persistent && s.store != nil {
+		if err := s.store.SetLastRun(ctx, job.Name, s.now()); err != nil && s.onError != nil {
+			s.onError(job.Name, fmt.Errorf("record last run: %w", err))
 		}
 	}
 }

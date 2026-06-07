@@ -2,6 +2,7 @@ package scheduler_test
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -173,5 +174,71 @@ func TestErrorCallback(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("panic was not reported to onError")
+	}
+}
+
+// fakeStore is an in-memory scheduler.Store for the persistence tests.
+type fakeStore struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	sets int32
+}
+
+func (f *fakeStore) LastRun(_ context.Context, name string) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.last[name]
+	return t, ok, nil
+}
+
+func (f *fakeStore) SetLastRun(_ context.Context, name string, t time.Time) error {
+	f.mu.Lock()
+	f.last[name] = t
+	f.mu.Unlock()
+	atomic.AddInt32(&f.sets, 1)
+	return nil
+}
+
+func TestPersistentSkipsRecentRun(t *testing.T) {
+	s := scheduler.New(nil)
+	s.SetStore(&fakeStore{last: map[string]time.Time{"dispatch": time.Now()}})
+	var runs int32
+	s.Add(scheduler.Job{
+		Name:       "dispatch",
+		Interval:   time.Hour,
+		RunOnStart: true,
+		Persistent: true,
+		Run:        func(context.Context) error { atomic.AddInt32(&runs, 1); return nil },
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	s.Start(ctx)
+	<-ctx.Done()
+	if got := atomic.LoadInt32(&runs); got != 0 {
+		t.Fatalf("persistent job ran %d times on start despite a recent run, want 0", got)
+	}
+}
+
+func TestPersistentRunsWhenDueAndRecords(t *testing.T) {
+	fs := &fakeStore{last: map[string]time.Time{"dispatch": time.Now().Add(-2 * time.Hour)}}
+	s := scheduler.New(nil)
+	s.SetStore(fs)
+	var runs int32
+	s.Add(scheduler.Job{
+		Name:       "dispatch",
+		Interval:   time.Hour,
+		RunOnStart: true,
+		Persistent: true,
+		Run:        func(context.Context) error { atomic.AddInt32(&runs, 1); return nil },
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	s.Start(ctx)
+	<-ctx.Done()
+	if got := atomic.LoadInt32(&runs); got < 1 {
+		t.Fatalf("persistent job ran %d times, want >= 1 (overdue)", got)
+	}
+	if got := atomic.LoadInt32(&fs.sets); got < 1 {
+		t.Fatal("persistent job did not record its run")
 	}
 }
