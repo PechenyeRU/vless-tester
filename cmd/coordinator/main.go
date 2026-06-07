@@ -72,6 +72,15 @@ func run() error {
 		RunOnStart: true,
 		Persistent: true, // resume the cadence across restarts; don't re-dispatch on every boot
 		Run: func(ctx context.Context) error {
+			// Skip before the expensive ingest if a cycle is still draining:
+			// loadServers re-fetches every source, so re-ingesting only to have
+			// DispatchCycle skip on the active-batch guard wastes bandwidth/memory.
+			if _, active, err := st.LatestUnfinishedBatch(ctx); err != nil {
+				return err
+			} else if active {
+				log.Printf("dispatch: skipped, a cycle is still in progress")
+				return nil
+			}
 			servers, err := loadServers(ctx, st)
 			if err != nil {
 				return err
