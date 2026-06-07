@@ -3,6 +3,7 @@
 	import { api } from '$lib/api.js';
 	import { flag, mbps, ago, dur } from '$lib/format.js';
 	import Help from '$lib/Help.svelte';
+	import DataTable from '$lib/DataTable.svelte';
 
 	let stats = $state(null);
 	let workers = $state([]);
@@ -260,36 +261,32 @@
 	<div class="card bg-base-100 shadow mb-6">
 		<div class="card-body p-0">
 			<h2 class="text-lg font-semibold px-5 pt-4">Fleet</h2>
-			{#if workers.length === 0}
-				<p class="text-base-content/60 px-5 py-6">No workers registered.</p>
-			{:else}
-				<div class="overflow-x-auto">
-					<table class="table table-sm">
-						<thead>
-							<tr>
-								<th>Worker</th><th>Status</th><th>Latency cap</th><th>Speed cap</th>
-								<th>Bandwidth</th><th>Last seen</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each workers as w}
-								<tr class="hover">
-									<td class="mono font-medium">{w.id}</td>
-									<td>
-										<span class="badge badge-sm {w.status === 'dead' ? 'badge-error' : 'badge-success'}">
-											{w.status}
-										</span>
-									</td>
-									<td>{w.capacity?.latency ?? '-'}</td>
-									<td>{w.capacity?.speed ?? '-'}</td>
-									<td>{w.capacity?.bw_mbps ? w.capacity.bw_mbps.toFixed(1) + ' MB/s' : '-'}</td>
-									<td class="text-base-content/60">{ago(w.last_seen)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
+			<DataTable
+				rows={workers}
+				perPage={25}
+				empty="No workers registered."
+				columns={[
+					{ key: 'id', label: 'Worker', value: (w) => w.id },
+					{ key: 'status', label: 'Status', value: (w) => w.status },
+					{ key: 'latency', label: 'Latency cap', value: (w) => w.capacity?.latency ?? -1 },
+					{ key: 'speed', label: 'Speed cap', value: (w) => w.capacity?.speed ?? -1 },
+					{ key: 'bw', label: 'Bandwidth', value: (w) => w.capacity?.bw_mbps ?? -1 },
+					{ key: 'last_seen', label: 'Last seen', value: (w) => w.last_seen ?? '' }
+				]}
+			>
+				{#snippet row(w)}
+					<td class="mono font-medium">{w.id}</td>
+					<td>
+						<span class="badge badge-sm {w.status === 'dead' ? 'badge-error' : 'badge-success'}">
+							{w.status}
+						</span>
+					</td>
+					<td>{w.capacity?.latency ?? '-'}</td>
+					<td>{w.capacity?.speed ?? '-'}</td>
+					<td>{w.capacity?.bw_mbps ? w.capacity.bw_mbps.toFixed(1) + ' MB/s' : '-'}</td>
+					<td class="text-base-content/60">{ago(w.last_seen)}</td>
+				{/snippet}
+			</DataTable>
 		</div>
 	</div>
 
@@ -297,50 +294,46 @@
 		<div class="card bg-base-100 shadow">
 			<div class="card-body p-0">
 				<h2 class="text-lg font-semibold px-5 pt-4">By country</h2>
-				<div class="overflow-x-auto">
-					<table class="table table-sm">
-						<thead>
-							<tr><th>Country</th><th>Servers</th><th>Tested ok</th><th>Median dl</th></tr>
-						</thead>
-						<tbody>
-							{#each stats.by_country || [] as c}
-								<tr class="hover">
-									<td>{flag(c.country)} {c.country || '-'}</td>
-									<td>{c.servers}</td>
-									<td>{c.tested}</td>
-									<td class="font-medium">{mbps(c.median_dl_mbps)}</td>
-								</tr>
-							{:else}
-								<tr><td colspan="4" class="text-base-content/60">No data yet.</td></tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<DataTable
+					rows={stats.by_country || []}
+					perPage={15}
+					columns={[
+						{ key: 'country', label: 'Country', value: (c) => c.country },
+						{ key: 'servers', label: 'Servers', value: (c) => c.servers },
+						{ key: 'tested', label: 'Tested ok', value: (c) => c.tested },
+						{ key: 'median_dl', label: 'Median dl', value: (c) => c.median_dl_mbps ?? -1 }
+					]}
+				>
+					{#snippet row(c)}
+						<td>{flag(c.country)} {c.country || '-'}</td>
+						<td>{c.servers}</td>
+						<td>{c.tested}</td>
+						<td class="font-medium">{mbps(c.median_dl_mbps)}</td>
+					{/snippet}
+				</DataTable>
 			</div>
 		</div>
 
 		<div class="card bg-base-100 shadow">
 			<div class="card-body p-0">
 				<h2 class="text-lg font-semibold px-5 pt-4">By worker</h2>
-				<div class="overflow-x-auto">
-					<table class="table table-sm">
-						<thead>
-							<tr><th>Worker</th><th>Runs</th><th>Ok</th><th>Last seen</th></tr>
-						</thead>
-						<tbody>
-							{#each stats.by_worker || [] as w}
-								<tr class="hover">
-									<td class="mono">{w.worker_id}</td>
-									<td>{w.runs}</td>
-									<td>{w.ok}</td>
-									<td class="text-base-content/60">{ago(w.last_seen)}</td>
-								</tr>
-							{:else}
-								<tr><td colspan="4" class="text-base-content/60">No data yet.</td></tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<DataTable
+					rows={stats.by_worker || []}
+					perPage={15}
+					columns={[
+						{ key: 'worker_id', label: 'Worker', value: (w) => w.worker_id },
+						{ key: 'runs', label: 'Runs', value: (w) => w.runs },
+						{ key: 'ok', label: 'Ok', value: (w) => w.ok },
+						{ key: 'last_seen', label: 'Last seen', value: (w) => w.last_seen ?? '' }
+					]}
+				>
+					{#snippet row(w)}
+						<td class="mono">{w.worker_id}</td>
+						<td>{w.runs}</td>
+						<td>{w.ok}</td>
+						<td class="text-base-content/60">{ago(w.last_seen)}</td>
+					{/snippet}
+				</DataTable>
 			</div>
 		</div>
 	</div>
