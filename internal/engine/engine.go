@@ -389,6 +389,14 @@ func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	}
 	pubServers := make([]output.PublicServer, 0, len(approved))
 	for _, a := range approved {
+		// Never export a node we can't cleanly re-parse: a link that fails parsing
+		// (garbage ss cipher, malformed vmess, NUL bytes, unknown scheme) would
+		// produce a broken entry that can make a whole subscription fail to import
+		// in a client. This guards every output format, not just one.
+		if _, err := ingest.Parse(a.RawURI); err != nil {
+			e.logf("engine: skip unexportable server %d: %v", a.ServerID, err)
+			continue
+		}
 		country, seqName := a.Country, a.SeqName
 		if seqName == "" {
 			country, seqName, err = e.ensureGeo(ctx, a.ServerID, a.Fingerprint, a.Host)

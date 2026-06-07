@@ -191,6 +191,13 @@ func parseShadowsocks(raw string) (model.Server, error) {
 	if err != nil {
 		return model.Server{}, err
 	}
+	// Reject an unsupported/garbage cipher (often a base64 mis-decode yielding
+	// binary): no client can use it, and it would otherwise be tested, approved
+	// and exported — breaking whole subscriptions (e.g. a Clash config that
+	// fails to import on one unknown cipher).
+	if !model.ValidShadowsocksCipher(method) {
+		return model.Server{}, fmt.Errorf("ss: unsupported cipher %q: %w", clip(method), ErrMalformed)
+	}
 	host, portStr, ok := strings.Cut(hostport, ":")
 	if !ok || host == "" {
 		return model.Server{}, fmt.Errorf("ss: invalid host:port %q", hostport)

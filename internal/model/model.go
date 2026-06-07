@@ -3,7 +3,31 @@
 // cycles between the pipeline stages.
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// shadowsocksCiphers is the set of shadowsocks ciphers clients (sing-box, clash/
+// mihomo) actually support. A ss link whose method is not one of these is junk —
+// often a base64 mis-decode that yields binary bytes — and must be rejected at
+// parse and skipped on render, since one unknown cipher makes a whole Clash
+// config fail to import.
+var shadowsocksCiphers = map[string]bool{
+	"aes-128-gcm": true, "aes-192-gcm": true, "aes-256-gcm": true,
+	"aes-128-cfb": true, "aes-192-cfb": true, "aes-256-cfb": true,
+	"aes-128-ctr": true, "aes-192-ctr": true, "aes-256-ctr": true,
+	"rc4-md5": true, "chacha20": true, "chacha20-ietf": true,
+	"chacha20-ietf-poly1305": true, "xchacha20-ietf-poly1305": true,
+	"2022-blake3-aes-128-gcm": true, "2022-blake3-aes-256-gcm": true,
+	"2022-blake3-chacha20-poly1305": true,
+	"none":                          true, "plain": true,
+}
+
+// ValidShadowsocksCipher reports whether method is a supported shadowsocks cipher.
+func ValidShadowsocksCipher(method string) bool {
+	return shadowsocksCiphers[strings.ToLower(method)]
+}
 
 // Protocol identifies a proxy protocol supported by the tester.
 type Protocol string

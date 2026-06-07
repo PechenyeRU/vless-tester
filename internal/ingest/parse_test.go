@@ -158,6 +158,24 @@ func TestDedup(t *testing.T) {
 	}
 }
 
+func TestParseShadowsocksRejectsGarbageCipher(t *testing.T) {
+	// A vless UUID mislabeled as ss://: the userinfo base64-decodes to binary
+	// rather than "method:password", yielding a junk cipher. It must be rejected
+	// so it is never tested, approved or exported (one unknown cipher breaks a
+	// whole Clash import).
+	if _, err := Parse("ss://a13df940-020c-465f-bc89-ee5279b5cd6a@198.41.215.31:443#x"); err == nil {
+		t.Fatal("expected ss with garbage cipher to be rejected")
+	}
+	// A real ss link with a supported cipher still parses.
+	srv, err := Parse("ss://aes-256-gcm:password@h.example:8388#ok")
+	if err != nil {
+		t.Fatalf("valid ss rejected: %v", err)
+	}
+	if srv.Params["method"] != "aes-256-gcm" || srv.Credential != "password" {
+		t.Fatalf("ss parse: method=%q cred=%q", srv.Params["method"], srv.Credential)
+	}
+}
+
 func TestParseRejectsNULAndInvalidUTF8(t *testing.T) {
 	base := "vless://" + sampleUUID + "@example.com:443"
 	for name, raw := range map[string]string{
