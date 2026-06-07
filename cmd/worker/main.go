@@ -1,5 +1,5 @@
 // Command worker is a probe: it pulls jobs from the coordinator, runs the test
-// battery through a local sing-box instance, and reports raw measurements. It
+// battery through an in-process mihomo proxy, and reports raw measurements. It
 // holds no approval/naming/publish logic. All configuration is via env var so
 // the same binary runs bare-metal or in a container. See DESIGN.md 3.2.
 package main
@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
-	"github.com/whitedns/vless-tester/internal/core"
-	"github.com/whitedns/vless-tester/internal/engine"
 	"github.com/whitedns/vless-tester/internal/worker"
 )
 
@@ -37,7 +35,7 @@ func run() error {
 	}
 
 	// Control channel: optionally tunneled through a SOCKS5 (COORDINATOR_PROXY),
-	// independent of the local sing-box proxy used to test servers.
+	// independent of the in-process mihomo proxy used to test servers.
 	httpClient, err := worker.ProxyClient(os.Getenv("COORDINATOR_PROXY"), 30*time.Second)
 	if err != nil {
 		return err
@@ -97,11 +95,10 @@ func run() error {
 		Capacity: capacity,
 		Coord:    coord,
 		Runner: worker.ProbeRunner{
-			Options:   core.Options{StartTimeout: startTimeout},
-			Latency:   checks.LatencyCheck{Timeout: latencyTimeout},
-			Speed:     checks.SpeedCheck{Config: speedCfg},
-			SpeedGate: speedGate,
-			NewClient: engine.SOCKS5Client,
+			HandshakeTimeout: startTimeout,
+			Latency:          checks.LatencyCheck{Timeout: latencyTimeout},
+			Speed:            checks.SpeedCheck{Config: speedCfg},
+			SpeedGate:        speedGate,
 		},
 		BatchMax:    batchMax,
 		Concurrency: capacity.Latency,

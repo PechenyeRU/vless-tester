@@ -90,6 +90,30 @@ func (s *Store) FunnelStages(ctx context.Context) ([]model.FunnelStage, error) {
 	return stages, nil
 }
 
+// NavigationEnabled reports whether workers should run the real-navigation gate,
+// from the navigation.enabled setting. Unlike the other optional checks this
+// defaults to ENABLED: a missing setting (and any read error) means on, so the
+// gate that distinguishes "reaches a 204 endpoint" from "actually browses" is
+// active out of the box and must be explicitly turned off.
+func (s *Store) NavigationEnabled(ctx context.Context) (bool, error) {
+	var enabled bool
+	if err := s.GetSetting(ctx, "navigation.enabled", &enabled); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		return true, err
+	}
+	return enabled, nil
+}
+
+// NavigationURL returns the optional real-navigation page URL override pushed to
+// workers; empty means the worker default (https://www.google.com/).
+func (s *Store) NavigationURL(ctx context.Context) (string, error) {
+	var url string
+	_ = s.GetSetting(ctx, "navigation.url", &url)
+	return url, nil
+}
+
 // DNSLeakEnabled reports whether workers should run the DNS-leak check, from the
 // dnsleak.enabled setting. Missing means disabled.
 func (s *Store) DNSLeakEnabled(ctx context.Context) (bool, error) {

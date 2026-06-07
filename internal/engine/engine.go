@@ -19,20 +19,19 @@ import (
 	"github.com/whitedns/vless-tester/internal/store"
 )
 
-// Instance is a running proxy with a local SOCKS endpoint.
+// Instance is a started proxy under test, exposing an http.Client that routes
+// through it. The mcore package provides the in-process mihomo implementation;
+// tests provide a stub.
 type Instance interface {
-	SocksAddress() string
+	Client() *http.Client
 	Close() error
 }
 
-// Prober starts a proxy for a server. The core package provides the sing-box
-// implementation; tests provide a stub.
+// Prober starts a proxy for a server. The mcore package provides the in-process
+// mihomo implementation; tests provide a stub.
 type Prober interface {
 	Start(ctx context.Context, srv model.Server) (Instance, error)
 }
-
-// ClientFactory builds an http.Client that routes through a SOCKS address.
-type ClientFactory func(socksAddr string) (*http.Client, error)
 
 // Approval is the corroboration gate. A server is published when at least
 // RequiredWorkers distinct workers each measured it within the latency/speed
@@ -64,7 +63,6 @@ func (a Approval) required() int {
 type Engine struct {
 	Store     *store.Store
 	Prober    Prober
-	NewClient ClientFactory
 	Latency   checks.LatencyCheck
 	Speed     checks.SpeedCheck
 	Resolver  naming.CountryResolver // optional; nil means "unknown country"
@@ -553,10 +551,7 @@ func (e *Engine) probe(ctx context.Context, srv model.Server) (lat, sp checks.Re
 	}
 	defer func() { _ = inst.Close() }()
 
-	client, err := e.NewClient(inst.SocksAddress())
-	if err != nil {
-		return checks.Result{Passed: false, Detail: err.Error()}, checks.Result{}
-	}
+	client := inst.Client()
 
 	lat, err = e.Latency.Run(ctx, client)
 	if err != nil {

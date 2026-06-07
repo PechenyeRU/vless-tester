@@ -50,6 +50,12 @@ type Store interface {
 	SpeedSettings(ctx context.Context) (model.SpeedSpec, error)
 	// DNSLeakEnabled reports whether workers should run the DNS-leak check.
 	DNSLeakEnabled(ctx context.Context) (bool, error)
+	// NavigationEnabled reports whether workers should run the real-navigation
+	// gate (default on).
+	NavigationEnabled(ctx context.Context) (bool, error)
+	// NavigationURL returns an optional real-navigation page override (empty =
+	// worker default).
+	NavigationURL(ctx context.Context) (string, error)
 }
 
 // WorkerTokenResolver maps a presented bearer secret to a worker identity and
@@ -250,18 +256,20 @@ type claimReq struct {
 }
 
 type claimedJob struct {
-	JobID     int64               `json:"job_id"`
-	ServerID  int64               `json:"server_id"`
-	RawURI    string              `json:"raw_uri"`
-	Phase     string              `json:"phase"`
-	Protocol  string              `json:"protocol"`
-	Checks    []string            `json:"checks,omitempty"`
-	Require   []string            `json:"require,omitempty"`
-	IPRisk    bool                `json:"ip_risk,omitempty"`
-	IPRiskURL string              `json:"ip_risk_url,omitempty"`
-	DNSLeak   bool                `json:"dns_leak,omitempty"`
-	Stages    []model.FunnelStage `json:"stages,omitempty"`
-	Speed     *model.SpeedSpec    `json:"speed,omitempty"`
+	JobID         int64               `json:"job_id"`
+	ServerID      int64               `json:"server_id"`
+	RawURI        string              `json:"raw_uri"`
+	Phase         string              `json:"phase"`
+	Protocol      string              `json:"protocol"`
+	Checks        []string            `json:"checks,omitempty"`
+	Require       []string            `json:"require,omitempty"`
+	IPRisk        bool                `json:"ip_risk,omitempty"`
+	IPRiskURL     string              `json:"ip_risk_url,omitempty"`
+	DNSLeak       bool                `json:"dns_leak,omitempty"`
+	Navigation    bool                `json:"navigation,omitempty"`
+	NavigationURL string              `json:"navigation_url,omitempty"`
+	Stages        []model.FunnelStage `json:"stages,omitempty"`
+	Speed         *model.SpeedSpec    `json:"speed,omitempty"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -337,21 +345,36 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		s.logf("api: claim %s: dns-leak setting: %v", workerID, err)
 		dnsLeak = false
 	}
+	navigation, err := s.Store.NavigationEnabled(r.Context())
+	if err != nil {
+		s.logf("api: claim %s: navigation setting: %v", workerID, err)
+		navigation = true // default-on; never silently drop the gate over a read error
+	}
+	var navURL string
+	if navigation {
+		if u, err := s.Store.NavigationURL(r.Context()); err != nil {
+			s.logf("api: claim %s: navigation url: %v", workerID, err)
+		} else {
+			navURL = u
+		}
+	}
 	out := make([]claimedJob, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, claimedJob{
-			JobID:     j.JobID,
-			ServerID:  j.ServerID,
-			RawURI:    j.RawURI,
-			Phase:     string(j.Phase),
-			Protocol:  string(j.Protocol),
-			Checks:    platforms,
-			Require:   require,
-			IPRisk:    ipRisk,
-			IPRiskURL: ipRiskURL,
-			DNSLeak:   dnsLeak,
-			Stages:    stages,
-			Speed:     speed,
+			JobID:         j.JobID,
+			ServerID:      j.ServerID,
+			RawURI:        j.RawURI,
+			Phase:         string(j.Phase),
+			Protocol:      string(j.Protocol),
+			Checks:        platforms,
+			Require:       require,
+			IPRisk:        ipRisk,
+			IPRiskURL:     ipRiskURL,
+			DNSLeak:       dnsLeak,
+			Navigation:    navigation,
+			NavigationURL: navURL,
+			Stages:        stages,
+			Speed:         speed,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

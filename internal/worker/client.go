@@ -36,8 +36,15 @@ type Job struct {
 	IPRiskURL string `json:"ip_risk_url,omitempty"`
 	// DNSLeak asks the worker to run the DNS-leak check (informational).
 	DNSLeak bool `json:"dns_leak,omitempty"`
-	// Stages is the ordered, gateable funnel pipeline (media, ip_risk, speed) the
-	// coordinator wants run after latency; empty means use the built-in default.
+	// Navigation asks the worker to run the real-navigation gate (fetch a real
+	// page); when its stage is gated and this fails, the funnel stops for the node.
+	Navigation bool `json:"navigation,omitempty"`
+	// NavigationURL overrides the page the navigation gate fetches (empty = worker
+	// default, https://www.google.com/).
+	NavigationURL string `json:"navigation_url,omitempty"`
+	// Stages is the ordered, gateable funnel pipeline (media, ip_risk, navigation,
+	// speed) the coordinator wants run after latency; empty means the built-in
+	// default order.
 	Stages []model.FunnelStage `json:"stages,omitempty"`
 	// Speed overrides the worker's speed-test config (custom endpoints, sizing,
 	// timeout); nil keeps the worker default.

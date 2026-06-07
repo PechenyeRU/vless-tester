@@ -1,10 +1,9 @@
 # Development tasks. Postgres connection for integration tests is taken from
 # TEST_DATABASE_URL; see docker-compose.yml for a local instance.
-.PHONY: build web coordinator worker-embedded dist embed-singbox \
+.PHONY: build web coordinator worker dist \
 	docker docker-worker docker-coordinator test test-int vet lint up down \
 	stack stack-down tidy clean
 
-SINGBOX_VERSION ?= 1.13.13
 VERSION         ?= dev
 IMAGE_PREFIX    ?= vless-tester
 PLATFORMS       ?= linux/amd64 linux/arm64
@@ -12,29 +11,23 @@ PLATFORMS       ?= linux/amd64 linux/arm64
 build:
 	go build ./...
 
-# Fetch the static sing-box release for the host platform into the embed dir.
-embed-singbox:
-	scripts/fetch-singbox.sh $$(go env GOOS) $$(go env GOARCH) $(SINGBOX_VERSION)
+# Single-file static worker for the host platform. The proxy core (mihomo) is a
+# vendored Go dependency, so the worker is one self-contained binary.
+worker:
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/worker ./cmd/worker
 
-# Single-file worker for the host platform with sing-box embedded.
-worker-embedded: embed-singbox
-	CGO_ENABLED=0 go build -tags embed_singbox -ldflags="-s -w" -o bin/worker ./cmd/worker
-
-# Multi-arch single-file workers (sing-box embedded) into dist/.
+# Multi-arch static workers into dist/.
 dist:
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
 		echo "building worker $$os/$$arch"; \
-		scripts/fetch-singbox.sh $$os $$arch $(SINGBOX_VERSION) || exit 1; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -tags embed_singbox \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build \
 			-ldflags="-s -w" -o dist/worker-$$os-$$arch ./cmd/worker || exit 1; \
 	done
-	@rm -rf internal/core/embedded
 
-# Container images (worker embeds sing-box; coordinator embeds the SPA).
+# Container images (the worker is a static binary; the coordinator embeds the SPA).
 docker-worker:
 	docker build -f deploy/docker/worker.Dockerfile \
-		--build-arg SINGBOX_VERSION=$(SINGBOX_VERSION) \
 		-t $(IMAGE_PREFIX)-worker:$(VERSION) .
 
 docker-coordinator:
@@ -83,4 +76,4 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf bin dist internal/core/embedded
+	rm -rf bin dist

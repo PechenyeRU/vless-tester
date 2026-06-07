@@ -6,18 +6,20 @@ import (
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
-	"github.com/whitedns/vless-tester/internal/core"
 	"github.com/whitedns/vless-tester/internal/ingest"
+	"github.com/whitedns/vless-tester/internal/mcore"
 	"github.com/whitedns/vless-tester/internal/model"
 )
 
-// ProbeRunner is the production Runner: it parses the share link, starts a local
-// sing-box for the server, and runs the funnel appropriate to the job's phase.
-// It reports only raw measurements; the coordinator decides what they mean.
+// ProbeRunner is the production Runner: it parses the share link, starts an
+// in-process mihomo proxy for the server, and runs the funnel appropriate to the
+// job's phase. It reports only raw measurements; the coordinator decides what
+// they mean.
 type ProbeRunner struct {
-	Options core.Options
-	Latency checks.LatencyCheck
-	Speed   checks.SpeedCheck
+	// HandshakeTimeout bounds the TLS handshake on each proxied connection.
+	HandshakeTimeout time.Duration
+	Latency          checks.LatencyCheck
+	Speed            checks.SpeedCheck
 	// SpeedGate bounds how many speed legs run at once across all concurrent
 	// funnel jobs, so latency probes fan out wide while bandwidth-sensitive speed
 	// tests stay limited (DESIGN 4). nil means no extra gating.
@@ -26,7 +28,6 @@ type ProbeRunner struct {
 	MediaTimeout time.Duration
 	// IPRiskURL overrides the IP-risk reputation provider; empty uses the default.
 	IPRiskURL string
-	NewClient func(socksAddr string) (*http.Client, error)
 }
 
 // Run measures one job. Latency always runs (it is the cheap gate); speed runs
@@ -37,16 +38,13 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 		return fail(err)
 	}
 
-	inst, err := core.Start(ctx, srv, p.Options)
+	inst, err := mcore.Start(ctx, srv, p.HandshakeTimeout)
 	if err != nil {
 		return fail(err)
 	}
 	defer func() { _ = inst.Close() }()
 
-	client, err := p.NewClient(inst.SocksAddress())
-	if err != nil {
-		return fail(err)
-	}
+	client := inst.Client()
 
 	lat, err := p.Latency.Run(ctx, client)
 	if err != nil {
@@ -100,6 +98,16 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 				res.Error = "skipped: ip_risk gate not passed"
 				return res
 			}
+		case "navigation":
+			if !job.Navigation {
+				continue
+			}
+			c := p.runNavigation(ctx, client, job.NavigationURL)
+			res.Checks = append(res.Checks, c)
+			if st.Gate && !c.Passed {
+				res.Error = "skipped: navigation gate not passed"
+				return res
+			}
 		case "speed":
 			sp, ran := p.runSpeed(ctx, client, &res, job.Speed)
 			if !ran {
@@ -115,10 +123,12 @@ func (p ProbeRunner) Run(ctx context.Context, job Job) Result {
 }
 
 // defaultStages is the built-in funnel order used when the coordinator does not
-// push a pipeline (older coordinator / unset setting). It mirrors the prior
-// hard-coded behavior: media gates (honoring Require), ip_risk and speed do not.
+// push a pipeline (older coordinator / unset setting). media and navigation gate
+// (navigation is the real-browse gate, on by default and honoring job.Navigation
+// as its kill-switch); ip_risk and speed do not.
 var defaultStages = []model.FunnelStage{
 	{Check: "media", Gate: true},
+	{Check: "navigation", Gate: true},
 	{Check: "ip_risk", Gate: false},
 	{Check: "speed", Gate: false},
 }
@@ -232,6 +242,18 @@ func (p ProbeRunner) runIPRisk(ctx context.Context, client *http.Client, url str
 		Detail: rr.Detail,
 		Metric: &score,
 	}, true
+}
+
+// runNavigation fetches a real web page through the proxy and reports whether
+// the node can actually browse (2xx + non-trivial body) — the gate that catches
+// exits which pass the cheap 204 latency check but cannot carry general traffic.
+func (p ProbeRunner) runNavigation(ctx context.Context, client *http.Client, url string) model.CheckOutcome {
+	r, err := checks.NavigationCheck{URL: url, Timeout: p.MediaTimeout}.Run(ctx, client)
+	detail := r.Detail
+	if err != nil {
+		detail = err.Error()
+	}
+	return model.CheckOutcome{Name: "navigation", Passed: r.Passed, Detail: detail}
 }
 
 // runDNSLeak checks whether DNS escapes the tunnel (resolver country != exit

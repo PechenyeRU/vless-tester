@@ -6,8 +6,10 @@ funnel pipeline (latency → speed → media/geo/DNS checks), and publishes a cu
 subscription of the working nodes — renamed, geo-tagged, and refreshed on a
 schedule.
 
-The core proxy engine is [sing-box](https://github.com/SagerNet/sing-box), driven
-as a child process. Storage and the job queue live in PostgreSQL — no extra broker.
+The proxy-under-test runs in-process via the [mihomo](https://github.com/metacubex/mihomo)
+(Clash.Meta) core — each node is dialed through an in-memory outbound, with no
+subprocess, SOCKS inbound, or temp config. Storage and the job queue live in
+PostgreSQL — no extra broker.
 
 ## Why
 
@@ -33,7 +35,7 @@ only the ones that actually work, named like a VPN provider:
           ┌─────┴─────┐     ┌─────┴─────┐     ┌──────┴────┐
           │ worker    │     │ worker    │     │ worker    │   (replicas: N)
           │ (home)    │     │ (VPS)     │     │ (k8s)     │
-          │ sing-box  │     │ sing-box  │     │ sing-box  │
+          │ mihomo    │     │ mihomo    │     │ mihomo    │
           └───────────┘     └───────────┘     └───────────┘
 ```
 
@@ -41,8 +43,9 @@ only the ones that actually work, named like a VPN provider:
   runs the job queue, assigns work, names nodes via GeoIP, applies the approval
   policy, and publishes the working list. It serves the REST API and embeds the
   admin dashboard (SvelteKit SPA) into the binary.
-- **Worker** — a dumb, untrusted probe. It claims jobs, spins up sing-box, runs
-  the checks, and reports **raw** measurements. It holds no policy, no thresholds,
+- **Worker** — a dumb, untrusted probe. It claims jobs, dials each node through an
+  in-process mihomo outbound, runs the checks, and reports **raw** measurements. It
+  holds no policy, no thresholds,
   and no secrets, so a worker can be handed to an external contributor safely.
   It is pull-based, so it works behind NAT with no inbound ports.
 - **Tester** — a single-process CLI that runs the whole pipeline locally against a
@@ -66,14 +69,18 @@ A fail-fast funnel — a node only advances to the next, more expensive stage if
 passed the previous one:
 
 1. **Latency** — high concurrency; a `generate_204` probe through the proxy drops
-   the dead nodes.
-2. **Speed** — low concurrency per node, but each measurement opens multiple
+   the dead nodes. It hits **two** providers (Cloudflare and Google) and passes
+   only if both answer, so a node that can reach a single anycast but not the open
+   internet does not slip through.
+2. **Checks** — extensible, pluggable probes run as an ordered, gateable funnel:
+   a real-navigation gate (fetch an actual page, on by default), media/streaming
+   unlock, IP risk scoring, DNS leak, and anything else implementing the `Check`
+   interface.
+3. **Speed** — low concurrency per node, but each measurement opens multiple
    parallel streams and sums the throughput (a single stream rarely saturates a
    proxied link). Adaptive by default: a small probe escalates to the full
    download only if promising. Endpoints, stream count, and sizing are
    configurable.
-3. **Checks** — extensible, pluggable probes: media/streaming unlock, IP risk
-   scoring, DNS leak, and anything else implementing the `Check` interface.
 
 Approval is computed **only** on the coordinator, from validated results in an
 append-only history. Because history is append-only, changing the quality/quantity
@@ -114,8 +121,8 @@ To stop: `make stack-down`.
 ## Running a worker
 
 A worker needs only the coordinator URL and a per-worker token (mint one in the
-dashboard, *Workers* section). It embeds sing-box, so it is a single artifact with
-no separate install.
+dashboard, *Workers* section). The mihomo core is vendored into the binary, so it
+is a single self-contained artifact with no separate install.
 
 **Container image (from GHCR):**
 
@@ -146,7 +153,7 @@ tagged release:
 | Image | Contents |
 |-------|----------|
 | `ghcr.io/pechenyeru/vless-tester/coordinator` | control plane + embedded dashboard, on distroless |
-| `ghcr.io/pechenyeru/vless-tester/worker`      | probe + embedded sing-box, on distroless |
+| `ghcr.io/pechenyeru/vless-tester/worker`      | static probe (mihomo core in-process), on distroless |
 
 ## Configuration
 
@@ -172,8 +179,8 @@ dashboard — no restart needed.
 
 ## Building from source
 
-Requires Go (see [`go.mod`](go.mod)), Node 22 (for the dashboard), and `bash`/`curl`
-(for fetching sing-box).
+Requires Go (see [`go.mod`](go.mod)) and Node 22 (for the dashboard). The mihomo
+proxy core is a vendored Go dependency, so there is no external binary to fetch.
 
 ```bash
 make build              # compile everything
@@ -182,7 +189,7 @@ make test-int           # integration tests (needs TEST_DATABASE_URL)
 make vet lint           # go vet + golangci-lint
 
 make coordinator        # builds the SPA, embeds it, outputs bin/coordinator
-make worker-embedded    # single-file worker for the host platform (bin/worker)
+make worker             # single-file static worker for the host platform (bin/worker)
 make dist               # multi-arch single-file workers into dist/
 make docker             # build both container images
 ```
@@ -223,8 +230,9 @@ cmd/coordinator   control plane: ingest, API, scheduler, output, publish
 cmd/worker        probe: claim → test → report
 cmd/tester        local single-process pipeline (dev / one-off)
 internal/ingest   URI parsers, subscription fetch, dedup, fingerprint
-internal/core     sing-box config generation and process lifecycle
-internal/checks    latency, speed, media, ip-risk, dns-leak (the Check interface)
+internal/mcore    in-process mihomo proxy: server → outbound → http.Client
+internal/core     sing-box outbound mapping (for the sing-box output format)
+internal/checks   latency, navigation, speed, media, ip-risk, dns-leak (the Check interface)
 internal/store    PostgreSQL: migrations, queries, job queue
 internal/naming   geoip, emoji, stable sequence names
 internal/output   subscription formats, README, Git publish

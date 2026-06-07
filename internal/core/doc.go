@@ -1,6 +1,5 @@
-// Package core drives the sing-box proxy engine: it renders a sing-box config
-// (local SOCKS inbound routed to the server outbound) for a normalized Server
-// and manages the lifecycle (spawn, readiness, teardown) of the process. The
-// sing-box binary is resolved from an explicit path, SINGBOX_BIN, an embedded
-// copy (single-file builds with -tags embed_singbox), or the PATH.
+// Package core maps a normalized Server to a sing-box outbound. It is no longer
+// a runtime proxy engine (the proxy-under-test now runs in-process via mihomo;
+// see internal/mcore); the mapper is kept only to render the sing-box
+// subscription output format (internal/convert).
 package core

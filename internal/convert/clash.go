@@ -40,11 +40,18 @@ func renderClash(nodes []Node) ([]byte, error) {
 	return yaml.Marshal(doc)
 }
 
-// clashProxy maps a server to a mihomo proxy entry, or nil when the protocol has
+// clashProxy maps a node to a mihomo proxy entry, or nil when the protocol has
 // no clash representation.
 func clashProxy(n Node) map[string]any {
-	s := n.Server
-	p := map[string]any{"name": n.Name, "server": s.Host, "port": s.Port}
+	return ClashProxy(n.Server, n.Name)
+}
+
+// ClashProxy maps a server to a mihomo (Clash.Meta) proxy entry under the given
+// name, or nil when the protocol has no clash representation. It is the single
+// source of truth for the server->mihomo mapping, shared by the clash output
+// renderer and the in-process testing core (internal/mcore).
+func ClashProxy(s model.Server, name string) map[string]any {
+	p := map[string]any{"name": name, "server": s.Host, "port": s.Port}
 	switch s.Protocol {
 	case model.ProtocolShadowsocks:
 		p["type"] = "ss"

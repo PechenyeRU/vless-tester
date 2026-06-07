@@ -1,6 +1,6 @@
 // Command tester runs a full single-node pipeline locally (ingest -> test ->
 // output) against a file of share links. It is the Phase 0 entrypoint and the
-// composition root wiring the real sing-box core and SOCKS client.
+// composition root wiring the in-process mihomo core.
 package main
 
 import (
@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/whitedns/vless-tester/internal/checks"
-	"github.com/whitedns/vless-tester/internal/core"
 	"github.com/whitedns/vless-tester/internal/engine"
 	"github.com/whitedns/vless-tester/internal/ingest"
+	"github.com/whitedns/vless-tester/internal/mcore"
 	"github.com/whitedns/vless-tester/internal/model"
 	"github.com/whitedns/vless-tester/internal/naming"
 	"github.com/whitedns/vless-tester/internal/store"
@@ -70,16 +70,15 @@ func run(linksFile string) error {
 	}
 
 	eng := &engine.Engine{
-		Store:     st,
-		Prober:    coreProber{opts: core.Options{StartTimeout: 8 * time.Second}},
-		NewClient: engine.SOCKS5Client,
-		Latency:   checks.LatencyCheck{Timeout: 5 * time.Second},
-		Speed:     checks.SpeedCheck{Config: checks.SpeedConfig{DownloadURL: downloadURL(), UploadURL: uploadURL(), Adaptive: true}},
-		Resolver:  resolver,
-		Seq:       naming.Allocator{Backend: st.NewSeqBackend()},
-		Brand:     "@WhiteDNS",
-		WorkerID:  workerID(),
-		Approval:  engine.Approval{MaxLatencyMs: envInt("APPROVE_MAX_LATENCY_MS", 2000), MinDlMBps: envFloat("APPROVE_MIN_MBPS", 0.5)},
+		Store:    st,
+		Prober:   mihomoProber{handshakeTimeout: 8 * time.Second},
+		Latency:  checks.LatencyCheck{Timeout: 5 * time.Second},
+		Speed:    checks.SpeedCheck{Config: checks.SpeedConfig{DownloadURL: downloadURL(), UploadURL: uploadURL(), Adaptive: true}},
+		Resolver: resolver,
+		Seq:      naming.Allocator{Backend: st.NewSeqBackend()},
+		Brand:    "@WhiteDNS",
+		WorkerID: workerID(),
+		Approval: engine.Approval{MaxLatencyMs: envInt("APPROVE_MAX_LATENCY_MS", 2000), MinDlMBps: envFloat("APPROVE_MIN_MBPS", 0.5)},
 	}
 
 	sum, err := eng.RunOnce(ctx, servers)
@@ -90,13 +89,13 @@ func run(linksFile string) error {
 	return nil
 }
 
-// coreProber adapts the sing-box core to the engine.Prober interface.
-type coreProber struct {
-	opts core.Options
+// mihomoProber adapts the in-process mihomo core to the engine.Prober interface.
+type mihomoProber struct {
+	handshakeTimeout time.Duration
 }
 
-func (p coreProber) Start(ctx context.Context, srv model.Server) (engine.Instance, error) {
-	return core.Start(ctx, srv, p.opts)
+func (p mihomoProber) Start(ctx context.Context, srv model.Server) (engine.Instance, error) {
+	return mcore.Start(ctx, srv, p.handshakeTimeout)
 }
 
 func downloadURL() string {

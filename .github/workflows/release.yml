@@ -15,10 +15,6 @@ permissions:
   contents: write
   packages: write
 
-env:
-  # Pinned to match the Dockerfile/Makefile default; bump in lockstep.
-  SINGBOX_VERSION: "1.13.13"
-
 jobs:
   images:
     runs-on: ubuntu-latest
@@ -68,8 +64,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            SINGBOX_VERSION=${{ env.SINGBOX_VERSION }}
           # Persist the module/build/npm cache mounts across runs. Scoped per
           # component so the two images do not evict each other.
           cache-from: type=gha,scope=${{ matrix.component }}
@@ -89,15 +83,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: embed sing-box
-        run: bash scripts/fetch-singbox.sh linux ${{ matrix.goarch }} "${SINGBOX_VERSION}"
-
       - name: build worker
         env:
           CGO_ENABLED: 0
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
-        run: go build -tags embed_singbox -ldflags="-s -w" -o "worker-linux-${{ matrix.goarch }}" ./cmd/worker
+        run: go build -ldflags="-s -w" -o "worker-linux-${{ matrix.goarch }}" ./cmd/worker
 
       - uses: actions/upload-artifact@v7
         with:

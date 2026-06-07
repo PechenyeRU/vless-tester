@@ -25,17 +25,18 @@ import (
 	"github.com/whitedns/vless-tester/internal/store"
 )
 
-// stubInstance / stubProber stand in for the sing-box core: no real proxy is
-// started, so the pipeline can be exercised without sing-box or live servers.
-type stubInstance struct{}
+// stubInstance / stubProber stand in for the mihomo core: no real proxy is
+// started, so the pipeline can be exercised without a core or live servers. The
+// instance hands back a client that talks to the test HTTP server directly.
+type stubInstance struct{ client *http.Client }
 
-func (stubInstance) SocksAddress() string { return "127.0.0.1:0" }
-func (stubInstance) Close() error         { return nil }
+func (s stubInstance) Client() *http.Client { return s.client }
+func (stubInstance) Close() error           { return nil }
 
-type stubProber struct{}
+type stubProber struct{ client *http.Client }
 
-func (stubProber) Start(_ context.Context, _ model.Server) (engine.Instance, error) {
-	return stubInstance{}, nil
+func (p stubProber) Start(_ context.Context, _ model.Server) (engine.Instance, error) {
+	return stubInstance(p), nil
 }
 
 // fakeResolver maps IPs to fixed countries.
@@ -116,11 +117,10 @@ func newTestStore(t *testing.T) *store.Store {
 
 func newEngine(st *store.Store, srv *httptest.Server) *engine.Engine {
 	return &engine.Engine{
-		Store:  st,
-		Prober: stubProber{},
-		// Ignore the (stub) SOCKS address; talk to the test server directly.
-		NewClient: func(string) (*http.Client, error) { return srv.Client(), nil },
-		Latency:   checks.LatencyCheck{URL: srv.URL + "/204"},
+		Store: st,
+		// The stub instance hands back a client that talks to the test server.
+		Prober:  stubProber{client: srv.Client()},
+		Latency: checks.LatencyCheck{URL: srv.URL + "/204"},
 		Speed: checks.SpeedCheck{Config: checks.SpeedConfig{
 			DownloadURL: srv.URL + "/down",
 			UploadURL:   srv.URL + "/up",

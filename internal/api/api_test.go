@@ -36,6 +36,8 @@ type fakeStore struct {
 	ipRisk         bool
 	ipRiskURL      string
 	dnsLeak        bool
+	navigation     bool
+	navigationURL  string
 	stages         []model.FunnelStage
 	speed          model.SpeedSpec
 }
@@ -95,7 +97,9 @@ func (f *fakeStore) FunnelStages(_ context.Context) ([]model.FunnelStage, error)
 func (f *fakeStore) SpeedSettings(_ context.Context) (model.SpeedSpec, error) {
 	return f.speed, nil
 }
-func (f *fakeStore) DNSLeakEnabled(_ context.Context) (bool, error) { return f.dnsLeak, nil }
+func (f *fakeStore) DNSLeakEnabled(_ context.Context) (bool, error)    { return f.dnsLeak, nil }
+func (f *fakeStore) NavigationEnabled(_ context.Context) (bool, error) { return f.navigation, nil }
+func (f *fakeStore) NavigationURL(_ context.Context) (string, error)   { return f.navigationURL, nil }
 
 // handlerProvider is satisfied by both *Server (worker plane) and *AdminServer
 // (admin plane), so the do() helper drives either.

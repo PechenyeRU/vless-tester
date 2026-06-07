@@ -13,11 +13,13 @@
 	// enabled, reordered, and set to drop a node that does not pass it.
 	const FUNNEL_DEFAULT = [
 		{ check: 'media', gate: true },
+		{ check: 'navigation', gate: true },
 		{ check: 'ip_risk', gate: false },
 		{ check: 'speed', gate: false }
 	];
 	const FILTER_META = {
 		media: { label: 'Media unlock', desc: 'Probe whether streaming and AI services work through the node.' },
+		navigation: { label: 'Navigation', desc: 'Fetch a real web page (e.g. google.com) to confirm the node actually browses, not just reaches a 204 endpoint.' },
 		ip_risk: { label: 'IP risk', desc: "Score the exit IP reputation (proxy, datacenter, mobile)." },
 		speed: { label: 'Speed', desc: 'Measure download and upload throughput (the expensive leg).' }
 	};
@@ -45,6 +47,8 @@
 		'iprisk.enabled': 'Edited above in the IP risk filter.',
 		'dnsleak.enabled': 'Edited above in the DNS leak filter.',
 		'iprisk.url': 'Edited above in the IP risk filter (provider URL; empty uses ip-api.com).',
+		'navigation.enabled': 'Edited above in the Navigation filter (real-browse gate; on by default).',
+		'navigation.url': 'Edited above in the Navigation filter (page fetched; empty uses google.com).',
 		'sub.path': 'Obfuscated token for /sub: when set, the list is only served at /sub/<token> and bare /sub is hidden.',
 		'dispatch.shuffle': 'Edited above in "Output filters" (randomize server order per cycle).',
 		'dispatch.max_probes': 'Edited above in "Output filters" (cap servers tested per cycle; 0 = all).',
@@ -89,6 +93,8 @@
 	let ipRiskEnabled = $state(false);
 	let ipRiskUrl = $state('');
 	let dnsLeakEnabled = $state(false);
+	let navigationEnabled = $state(true);
+	let navigationUrl = $state('');
 	let speedEnabled = $state(true);
 	// Funnel pipeline (ordered list of {check, gate}); always carries media,
 	// ip_risk and speed so they can be reordered even while disabled.
@@ -136,6 +142,9 @@
 			ipRiskEnabled = !!(sett && sett['iprisk.enabled']);
 			ipRiskUrl = (sett && sett['iprisk.url']) || '';
 			dnsLeakEnabled = !!(sett && sett['dnsleak.enabled']);
+			// Navigation defaults ON: a missing setting means the gate is active.
+			navigationEnabled = (sett && sett['navigation.enabled']) ?? true;
+			navigationUrl = (sett && sett['navigation.url']) || '';
 			const savedFunnel = sett && sett['funnel.stages'];
 			speedEnabled = !Array.isArray(savedFunnel) || savedFunnel.some((s) => s.check === 'speed');
 			funnelStages = normalizeFunnel(savedFunnel);
@@ -191,6 +200,7 @@
 
 	function filterEnabled(check) {
 		if (check === 'media') return mediaEnabled;
+		if (check === 'navigation') return navigationEnabled;
 		if (check === 'ip_risk') return ipRiskEnabled;
 		if (check === 'speed') return speedEnabled;
 		return false;
@@ -198,6 +208,7 @@
 
 	function setFilterEnabled(check, on) {
 		if (check === 'media') mediaEnabled = on;
+		else if (check === 'navigation') navigationEnabled = on;
 		else if (check === 'ip_risk') ipRiskEnabled = on;
 		else if (check === 'speed') speedEnabled = on;
 	}
@@ -219,6 +230,8 @@
 				'iprisk.enabled': ipRiskEnabled,
 				'iprisk.url': ipRiskUrl.trim(),
 				'dnsleak.enabled': dnsLeakEnabled,
+				'navigation.enabled': navigationEnabled,
+				'navigation.url': navigationUrl.trim(),
 				'speed.download_url': speed.download_url.trim(),
 				'speed.upload_url': speed.upload_url.trim(),
 				'speed.streams': Number(speed.streams),
@@ -769,6 +782,11 @@
 										{/each}
 									</div>
 								</div>
+							{:else if st.check === 'navigation'}
+								<label class="form-control">
+									<span class="label-text mb-1">Page URL <span class="text-base-content/50">(real page to fetch; empty uses google.com)</span></span>
+									<input class="input input-bordered input-sm mono text-xs" bind:value={navigationUrl} placeholder="https://www.google.com/" />
+								</label>
 							{:else if st.check === 'ip_risk'}
 								<label class="form-control">
 									<span class="label-text mb-1">Provider URL <span class="text-base-content/50">(empty uses the default ip-api.com)</span></span>
