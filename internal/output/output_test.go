@@ -3,6 +3,7 @@ package output_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -83,8 +84,9 @@ func TestBuildArtifactsSubscription(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("got %d links, want 2", len(lines))
 	}
-	// The first link must be renamed with the node name in its fragment.
-	if !strings.Contains(lines[0], "#🇫🇷 | @WhiteDNS | FR110|12.3MB/s") {
+	// The first link must be renamed with the node name in its fragment,
+	// percent-encoded so strict clients accept it.
+	if !strings.Contains(lines[0], "#"+url.PathEscape("🇫🇷 | @WhiteDNS | FR110|12.3MB/s")) {
 		t.Fatalf("first link not renamed: %q", lines[0])
 	}
 	// Connection part must be preserved.

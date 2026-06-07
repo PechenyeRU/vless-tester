@@ -1,10 +1,10 @@
-vless://11111111-1111-1111-1111-111111111111@vless.example.com:443?type=ws&security=tls&sni=vless.example.com&path=%2Fws&host=cdn.example.com#🇫🇷 | @WhiteDNS | VLESS
-vless://11111111-1111-1111-1111-111111111111@reality.example.com:443?type=grpc&security=reality&sni=reality.example.com&pbk=PUBKEY&sid=abcd&fp=chrome&flow=xtls-rprx-vision&serviceName=grpcsvc#🇫🇷 | @WhiteDNS | VLESS-reality
+vless://11111111-1111-1111-1111-111111111111@vless.example.com:443?type=ws&security=tls&sni=vless.example.com&path=%2Fws&host=cdn.example.com#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20VLESS
+vless://11111111-1111-1111-1111-111111111111@reality.example.com:443?type=grpc&security=reality&sni=reality.example.com&pbk=PUBKEY&sid=abcd&fp=chrome&flow=xtls-rprx-vision&serviceName=grpcsvc#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20VLESS-reality
 vmess://eyJhZGQiOiJ2bWVzcy5leGFtcGxlLmNvbSIsImFpZCI6IjAiLCJob3N0IjoiY2RuLmV4YW1wbGUuY29tIiwiaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJuZXQiOiJ3cyIsInBhdGgiOiIvcmF5IiwicG9ydCI6IjQ0MyIsInBzIjoi8J+Hq/Cfh7cgfCBAV2hpdGVETlMgfCBWTWVzcyIsInNjeSI6ImF1dG8iLCJzbmkiOiJ2bWVzcy5leGFtcGxlLmNvbSIsInRscyI6InRscyIsInR5cGUiOiJub25lIiwidiI6IjIifQ==
-trojan://pass123@trojan.example.com:8443?sni=trojan.example.com&type=tcp&insecure=1#🇫🇷 | @WhiteDNS | Trojan
-tuic://11111111-1111-1111-1111-111111111111:secret@tuic.example.com:443?congestion_control=bbr&sni=tuic.example.com#🇫🇷 | @WhiteDNS | TUIC
-hysteria2://auth123@hy2.example.com:443?sni=hy2.example.com&insecure=1&obfs=salamander&obfs-password=obfspw#🇫🇷 | @WhiteDNS | Hysteria2
-ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@ss.example.com:8388#🇫🇷 | @WhiteDNS | Shadowsocks
-anytls://password@at.example.com:443?sni=at.example.com&insecure=1#🇫🇷 | @WhiteDNS | AnyTLS
-hysteria://h1.example.com:443?auth=secret&peer=h1.example.com&upmbps=100&downmbps=50&obfs=xplus&insecure=1#🇫🇷 | @WhiteDNS | HysteriaV1
-socks5://user:pass@sk.example.com:1080#🇫🇷 | @WhiteDNS | SOCKS
+trojan://pass123@trojan.example.com:8443?sni=trojan.example.com&type=tcp&insecure=1#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20Trojan
+tuic://11111111-1111-1111-1111-111111111111:secret@tuic.example.com:443?congestion_control=bbr&sni=tuic.example.com#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20TUIC
+hysteria2://auth123@hy2.example.com:443?sni=hy2.example.com&insecure=1&obfs=salamander&obfs-password=obfspw#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20Hysteria2
+ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@ss.example.com:8388#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20Shadowsocks
+anytls://password@at.example.com:443?sni=at.example.com&insecure=1#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20AnyTLS
+hysteria://h1.example.com:443?auth=secret&peer=h1.example.com&upmbps=100&downmbps=50&obfs=xplus&insecure=1#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20HysteriaV1
+socks5://user:pass@sk.example.com:1080#%F0%9F%87%AB%F0%9F%87%B7%20%7C%20@WhiteDNS%20%7C%20SOCKS

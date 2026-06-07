@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,7 +152,8 @@ func TestBase64RoundTrips(t *testing.T) {
 		t.Fatalf("v2ray lines = %d, want %d", len(lines), len(nodes))
 	}
 	for i, n := range nodes {
-		if !strings.Contains(lines[i], n.Name) && !strings.HasPrefix(lines[i], "vmess://") {
+		// Non-vmess links carry the name percent-encoded in the URI fragment.
+		if !strings.Contains(lines[i], url.PathEscape(n.Name)) && !strings.HasPrefix(lines[i], "vmess://") {
 			t.Errorf("line %d missing node name %q: %s", i, n.Name, lines[i])
 		}
 	}

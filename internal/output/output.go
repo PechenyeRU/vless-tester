@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 
 	"github.com/whitedns/vless-tester/internal/model"
@@ -202,7 +203,11 @@ func renameLink(raw, name string) string {
 		}
 	}
 	base, _, _ := strings.Cut(raw, "#")
-	return base + "#" + name
+	// Percent-encode the fragment: the name carries spaces, "|", "/" and emoji,
+	// which a strict client (e.g. NekoBox) won't accept raw in a URI fragment —
+	// it drops the name and auto-labels the node. Every client decodes it back to
+	// the original for display. (vmess carries its name in JSON, handled above.)
+	return base + "#" + url.PathEscape(name)
 }
 
 // renameVMess decodes the base64 JSON payload, updates ps, and re-encodes it.
