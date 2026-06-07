@@ -52,13 +52,15 @@ func (s *Store) CycleProgress(ctx context.Context) (CycleProgress, error) {
 // jobs and finishes the batch without publishing. canceled is false when no
 // cycle is active.
 func (s *Store) CancelActiveCycle(ctx context.Context) (canceled bool, err error) {
-	// Fail every open job, not just the active batch's: a batch finished early
-	// (by a requeue or a prior race) can leave orphaned queued jobs that workers
-	// keep draining, so cancel must halt all of them to reliably stop the fleet.
+	// Delete every open job (queued or claimed), not just the active batch's, and
+	// don't mark them failed: a cancel stops work that was never measured, so it
+	// must leave no trace. The rolling publish window is built from test_runs
+	// (real measurements), so an untested-but-canceled job must not look like a
+	// failure. Deleting also clears orphans from a batch that finished early.
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE jobs SET state = 'failed' WHERE state IN ('queued', 'claimed')`)
+		`DELETE FROM jobs WHERE state IN ('queued', 'claimed')`)
 	if err != nil {
-		return false, fmt.Errorf("cancel cycle: fail jobs: %w", err)
+		return false, fmt.Errorf("cancel cycle: delete jobs: %w", err)
 	}
 	canceled = tag.RowsAffected() > 0
 	// Close any still-open batch so the next dispatch starts cleanly.
