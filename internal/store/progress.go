@@ -52,20 +52,23 @@ func (s *Store) CycleProgress(ctx context.Context) (CycleProgress, error) {
 // jobs and finishes the batch without publishing. canceled is false when no
 // cycle is active.
 func (s *Store) CancelActiveCycle(ctx context.Context) (canceled bool, err error) {
-	id, active, err := s.LatestUnfinishedBatch(ctx)
+	// Fail every open job, not just the active batch's: a batch finished early
+	// (by a requeue or a prior race) can leave orphaned queued jobs that workers
+	// keep draining, so cancel must halt all of them to reliably stop the fleet.
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE jobs SET state = 'failed' WHERE state IN ('queued', 'claimed')`)
 	if err != nil {
-		return false, fmt.Errorf("cancel cycle: latest batch: %w", err)
-	}
-	if !active {
-		return false, nil
-	}
-	if _, err := s.pool.Exec(ctx,
-		`UPDATE jobs SET state = 'failed' WHERE batch_id = $1 AND state IN ('queued', 'claimed')`, id,
-	); err != nil {
 		return false, fmt.Errorf("cancel cycle: fail jobs: %w", err)
 	}
-	if err := s.FinishBatch(ctx, id); err != nil {
-		return false, fmt.Errorf("cancel cycle: finish: %w", err)
+	canceled = tag.RowsAffected() > 0
+	// Close any still-open batch so the next dispatch starts cleanly.
+	if id, active, err := s.LatestUnfinishedBatch(ctx); err != nil {
+		return canceled, fmt.Errorf("cancel cycle: latest batch: %w", err)
+	} else if active {
+		if err := s.FinishBatch(ctx, id); err != nil {
+			return canceled, fmt.Errorf("cancel cycle: finish: %w", err)
+		}
+		canceled = true
 	}
-	return true, nil
+	return canceled, nil
 }
