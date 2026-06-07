@@ -227,10 +227,6 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 		return 0, false, nil
 	}
 
-	batchID, err = e.Store.CreateBatch(ctx, "scheduled")
-	if err != nil {
-		return 0, false, fmt.Errorf("engine: create batch: %w", err)
-	}
 	// Globally disabled protocols are skipped entirely: no jobs are enqueued, so
 	// they never get checked (re-enabling includes them on the next cycle).
 	enabled, err := e.Store.EnabledProtocols(ctx)
@@ -247,7 +243,10 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 
 	// Persist the full catalog so the dashboard reflects every ingested server,
 	// independent of how many we test this cycle. Done in bulk (set-based) rather
-	// than a round-trip per server, so a 200k-server catalog stays cheap.
+	// than a round-trip per server, so a 200k-server catalog stays cheap. This is
+	// the slow step, so it runs BEFORE the batch exists: otherwise the batch would
+	// sit open-with-no-jobs for seconds and the reconcile timer could finish (and
+	// prematurely publish) it before any job is enqueued.
 	if err := e.Store.BulkUpsertServers(ctx, candidates); err != nil {
 		return 0, false, fmt.Errorf("engine: persist catalog: %w", err)
 	}
@@ -267,15 +266,28 @@ func (e *Engine) DispatchCycle(ctx context.Context, servers []model.Server) (bat
 	if maxProbes > 0 && len(sample) > maxProbes {
 		sample = sample[:maxProbes]
 	}
-
 	fingerprints := make([]string, len(sample))
 	for i, srv := range sample {
 		fingerprints[i] = srv.Fingerprint
+	}
+
+	// Create the batch only now, immediately before enqueuing, to keep the
+	// open-but-empty window as short as possible.
+	batchID, err = e.Store.CreateBatch(ctx, "scheduled")
+	if err != nil {
+		return 0, false, fmt.Errorf("engine: create batch: %w", err)
 	}
 	n := e.fanout(ctx)
 	enqueued, err := e.Store.BulkEnqueueFanout(ctx, batchID, fingerprints, model.PhaseFunnel, n)
 	if err != nil {
 		return 0, false, fmt.Errorf("engine: enqueue fanout: %w", err)
+	}
+	// An empty cycle (no candidates) has nothing to drain; finish it now so it
+	// does not linger open and block the next dispatch.
+	if enqueued == 0 {
+		if err := e.Store.FinishBatch(ctx, batchID); err != nil {
+			return 0, false, fmt.Errorf("engine: finish empty batch: %w", err)
+		}
 	}
 	e.logf("engine: dispatch enqueued %d jobs for %d of %d servers (batch %d, fanout %d)", enqueued, len(sample), len(candidates), batchID, n)
 	return batchID, true, nil
@@ -331,6 +343,16 @@ func (e *Engine) Reconcile(ctx context.Context) (ReconcileResult, error) {
 	res.OpenJobs = open
 	if open > 0 {
 		return res, nil // still draining
+	}
+
+	// Zero open jobs can also mean "mid-dispatch" (the batch row exists but its
+	// jobs are not enqueued yet). Only finish a batch that actually has jobs, so
+	// the reconcile timer never prematurely finishes (and publishes) a batch that
+	// dispatch is still filling.
+	if has, err := e.Store.BatchHasJobs(ctx, id); err != nil {
+		return res, fmt.Errorf("engine: batch has jobs: %w", err)
+	} else if !has {
+		return res, nil
 	}
 
 	if err := e.Store.FinishBatch(ctx, id); err != nil {

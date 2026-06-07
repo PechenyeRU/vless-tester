@@ -222,6 +222,20 @@ func (s *Store) OpenJobCount(ctx context.Context, batchID *int64) (int, error) {
 	return n, nil
 }
 
+// BatchHasJobs reports whether any job rows exist for a batch (in any state). It
+// distinguishes a drained batch (had jobs, all closed) from a mid-dispatch one
+// (batch row created, jobs not enqueued yet), so reconcile never finishes the
+// latter prematurely.
+func (s *Store) BatchHasJobs(ctx context.Context, batchID int64) (bool, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM jobs WHERE batch_id = $1)`, batchID,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("batch has jobs %d: %w", batchID, err)
+	}
+	return exists, nil
+}
+
 // NackJobs releases the given jobs back to the queue, but only those still
 // claimed by this worker. A worker is untrusted, so it can never affect jobs it
 // does not hold. It returns the number of jobs actually requeued.
