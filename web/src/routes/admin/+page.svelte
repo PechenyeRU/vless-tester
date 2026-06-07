@@ -33,7 +33,6 @@
 		'speed.adaptive': 'Edited above in the Speed filter (stop the speed test early once throughput is clear).',
 		'dispatch.interval': 'How often a new test cycle is dispatched (e.g. 12h, 30m).',
 		'reconcile.interval': 'How often dead-worker jobs are requeued and drained batches published.',
-		'sources.refresh': 'How often subscription sources are refetched.',
 		'publish.interval': 'How often the working list is published.',
 		'publish.github_repo': 'Separate GitHub repo the working list is pushed to.',
 		'geoip.refresh': 'How often the GeoIP database is refreshed (about 2 weeks).',
