@@ -21,27 +21,27 @@ type ApprovedServer struct {
 }
 
 // ApprovedServers applies the corroboration gate over the append-only history:
-// it keeps servers that at least `required` distinct workers measured with
-// latency_ms <= maxLatencyMs AND dl_mbps >= minDlMbps. When batchID is non-nil
-// only that batch counts; otherwise the whole history is considered. Approval is
-// a pure function of stored results, so changing the gate and re-running this
-// (no proxy tests) is the re-gate path. The published speed is the per-worker
-// median, sorted best-first.
+// it keeps servers whose LATEST measurement from at least `required` distinct
+// workers is ok with latency_ms <= maxLatencyMs AND dl_mbps >= minDlMbps. Using
+// the latest run per (server, worker) — not any historical pass — means a node
+// that has since gone dead (its newest run failed) is excluded, so the published
+// list stays current. When batchID is non-nil only that batch counts; nil
+// considers the whole history (the rolling working list). Approval is a pure
+// function of stored results, so re-gating never retests. Published speed is the
+// per-worker median, sorted best-first.
 func (s *Store) ApprovedServers(ctx context.Context, batchID *int64, minDlMbps float64, maxLatencyMs, required int) ([]ApprovedServer, error) {
 	if required < 1 {
 		required = 1
 	}
-	// per_worker collapses each (server, worker) to its latest passing run, so a
-	// worker is counted once and contributes one value to the median.
+	// per_worker collapses each (server, worker) to its single latest run (any
+	// status); the outer WHERE then keeps only those whose latest run cleared the
+	// gate, so each worker is counted once and contributes one value to the median.
 	const q = `
 		WITH per_worker AS (
 			SELECT DISTINCT ON (server_id, worker_id)
-			       server_id, worker_id, dl_mbps
+			       server_id, worker_id, status, latency_ms, dl_mbps
 			FROM test_runs
-			WHERE status = 'ok'
-			  AND latency_ms IS NOT NULL AND latency_ms <= $2
-			  AND dl_mbps  IS NOT NULL AND dl_mbps  >= $3
-			  AND ($1::bigint IS NULL OR batch_id = $1)
+			WHERE ($1::bigint IS NULL OR batch_id = $1)
 			ORDER BY server_id, worker_id, run_at DESC
 		)
 		SELECT s.id, s.fingerprint, s.raw_uri, s.host,
@@ -50,6 +50,9 @@ func (s *Store) ApprovedServers(ctx context.Context, batchID *int64, minDlMbps f
 		       percentile_cont(0.5) WITHIN GROUP (ORDER BY pw.dl_mbps) AS median_dl
 		FROM per_worker pw
 		JOIN servers s ON s.id = pw.server_id
+		WHERE pw.status = 'ok'
+		  AND pw.latency_ms IS NOT NULL AND pw.latency_ms <= $2
+		  AND pw.dl_mbps  IS NOT NULL AND pw.dl_mbps  >= $3
 		GROUP BY s.id, s.fingerprint, s.raw_uri, s.host, s.country, s.seq_name
 		HAVING count(*) >= $4
 		ORDER BY median_dl DESC`

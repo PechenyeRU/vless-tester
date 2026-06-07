@@ -375,13 +375,12 @@ func (e *Engine) Reconcile(ctx context.Context) (ReconcileResult, error) {
 func (e *Engine) PublishFromHistory(ctx context.Context) (Summary, error) {
 	var sum Summary
 
-	// Default to the latest completed batch; nil falls back to rolling history.
+	// Publish the rolling working list: the gate is applied over the whole
+	// history (each server's latest measurement), not just the most recent batch.
+	// Scoping to one batch made the list collapse whenever that batch was partial
+	// — finished early by a stop, a requeue, or a mid-dispatch reconcile — even
+	// though thousands of servers were passing across the catalog. nil = rolling.
 	var filter *int64
-	if id, ok, err := e.Store.LatestFinishedBatch(ctx); err != nil {
-		return sum, fmt.Errorf("engine: latest batch: %w", err)
-	} else if ok {
-		filter = &id
-	}
 
 	ap := e.approval(ctx)
 	approved, err := e.Store.ApprovedServers(ctx, filter, ap.MinDlMBps, ap.MaxLatencyMs, ap.required())
